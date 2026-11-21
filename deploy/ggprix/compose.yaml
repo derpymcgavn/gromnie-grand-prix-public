@@ -1,0 +1,7 @@
+services:
+  relay:
+    build:
+      context: ../../RaceRelay
+    ports:
+      - "127.0.0.1:8040:8080"
+    restart: unless-stopped

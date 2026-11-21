@@ -1,0 +1,35 @@
+config_version=5
+
+[application]
+config/name="Gromnie Grand Prix"
+config/icon="res://Data/GromnieGrandPrix.png"
+config/windows_native_icon="res://Data/GromnieGrandPrix.ico"
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.7", "C#", "GL Compatibility")
+
+[dotnet]
+project/assembly_name="GromnieGrandPrix"
+
+[display]
+window/size/viewport_width=1280
+window/size/viewport_height=800
+window/size/window_width_override=1152
+window/size/window_height_override=720
+window/stretch/mode="canvas_items"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+anti_aliasing/quality/msaa_3d=2
+
+[debug]
+file_logging/enable_file_logging=false
+
+[shader_globals]
+dereth_wetness={ "type": "float", "value": 0.0 }
+dereth_rain={ "type": "float", "value": 0.0 }
+dereth_horizon={ "type": "vec3", "value": Vector3(0.83, 0.88, 0.9) }
+dereth_zenith={ "type": "vec3", "value": Vector3(0.22, 0.48, 0.72) }
+dereth_light={ "type": "vec3", "value": Vector3(0.45, 0.8, 0.4) }
+dereth_scene_grade={ "type": "vec4", "value": Vector4(0.19, 1.09, 0.29, 0.004) }
+

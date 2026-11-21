@@ -1,0 +1,4 @@
+bin/
+obj/
+.godot/
+NuGet.Config

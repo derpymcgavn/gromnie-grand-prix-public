@@ -1,0 +1,17 @@
+PLAYING GROMNIE GRAND PRIX
+
+The game reads two files from your Asheron's Call client installation.
+
+    client_portal.dat
+    client_cell_1.dat
+
+Keep both DATs in the same Asheron's Call folder. The game reads them
+directly from that folder.
+
+1. Open Gromnie Grand Prix from the Windows Start menu.
+2. If asked to find your DATs, choose Browse and select the folder
+   containing both files. A common location is C:\Turbine\Asheron's Call.
+   If you type the folder path instead, choose Load DATs.
+
+To uninstall, open Windows Settings, go to Apps > Installed apps, and
+select Uninstall for Gromnie Grand Prix.

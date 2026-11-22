@@ -34,7 +34,8 @@ public partial class GrandPrix
     private static void ExpireInput(HumanPilot pilot)
     {
         if (Time.GetTicksMsec() - pilot.LastInput <= 1000) return;
-        pilot.Held = pilot.Actions = pilot.Steer = 0;
+        pilot.Held = pilot.Actions = 0;
+        pilot.Steer = 0;
     }
 
     private void MarkRemoteStarts(bool go)
@@ -175,10 +176,10 @@ public partial class GrandPrix
             (IsHeld(Key.Space) ? DriftBit : 0);
         if (FreeFlightControls) held |= FreeFlightBit;
         if (!paused && (held & GasBit) == 0 && Player.Flight is { } flight) flight.DiveReady = true;
-        int steer = paused ? 0 : (Has(Key.D, Key.Right) ? 1 : 0) - (Has(Key.A, Key.Left) ? 1 : 0);
+        float steer = paused ? 0 : LocalSteering;
         useItem = requestGuard = requestRoll = false;
         pendingSwipe = 0;
-        SendOnline(Wire.Packet("input", new OnlineInput(onlinePlan!.Epoch, ++onlineInputSequence, steer, held, paused ? 0 : actions)));
+        SendOnline(Wire.Packet("input", new OnlineInput(onlinePlan!.Epoch, ++onlineInputSequence, Math.Sign(steer), held, paused ? 0 : actions, steer)));
     }
 
     private void ApplyOnlineState(OnlineState state)

@@ -6,7 +6,10 @@ internal sealed record OnlineLoadout(string Name, int Mount, int Skin, int Weapo
 internal sealed record OnlineSlot(int Peer, OnlineLoadout Loadout);
 internal sealed record OnlinePlan(int Epoch, int Course, int Weather, int Seed, OnlineSlot[] Slots, CustomTrack? Route = null);
 internal sealed record OnlineLoaded(int Epoch, string? Error = null);
-internal sealed record OnlineInput(int Epoch, int Serial, int Steer, int Held, int Actions);
+internal sealed record OnlineInput(int Epoch, int Serial, int Steer, int Held, int Actions, float? Steering = null)
+{
+    internal float SteeringAxis => Steering is { } axis && float.IsFinite(axis) ? Math.Clamp(axis, -1, 1) : Math.Clamp(Steer, -1, 1);
+}
 
 internal readonly record struct OnlinePoint(float X, float Y, float Z)
 {

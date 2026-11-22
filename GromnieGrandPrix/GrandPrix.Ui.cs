@@ -543,7 +543,7 @@ public partial class GrandPrix
 
     private void UpdateRaceUi()
     {
-        UpdateRaceTouchFlightLabels();
+        UpdateRaceTouchMode();
         placeText.Text = $"{place}/{RacerCount}";
         lapText.Text = track.IsSprint ? $"{Mathf.Clamp(Mathf.RoundToInt(100 * Player.Distance / track.Gate(track.GateCount)), 0, 100)}%" : $"{lap}/{track.Laps}";
         timerText.Text = FormatTime(Player.Finish >= 0 ? Player.Finish : elapsed);
@@ -608,6 +608,7 @@ public partial class GrandPrix
 
     private void ShowResults(bool record)
     {
+        CloseTouchLayout(save: false);
         raceTouchUi?.Hide();
         UpdateRaceViewUi();
         ClearRabbitCamera();

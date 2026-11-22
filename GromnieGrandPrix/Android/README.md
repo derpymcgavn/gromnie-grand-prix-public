@@ -22,3 +22,9 @@ Run [Build.ps1](Build.ps1) with `-ImportDats` to build an APK that reads each pl
 3. The game makes an app-private copy for future launches. Allow about 1.2 GiB of additional free space for the original retail files.
 
 The release package ID is `com.gromnie.grandprix`. It installs alongside older private test builds.
+
+## Racing controls
+
+Push the joystick up to accelerate, down to brake, and sideways to steer. Hold **Drift** while steering to charge a boost. In Free Flight, the joystick banks left or right, dives when pushed up, and climbs when pulled down.
+
+Open **Pause → Touch Layout** to drag controls, resize them, or swap the driving controls to the other side. **Edit Flight** shows the airborne layout, including Air Roll. **Done** saves the layout for future races.

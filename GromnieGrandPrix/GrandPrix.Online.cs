@@ -28,9 +28,9 @@ public partial class GrandPrix
 
     private sealed class HumanPilot
     {
-        internal int Serial, Held, Actions, Steer;
+        internal int Serial, Held, Actions;
         internal ulong LastInput;
-        internal float Lateral, Charge;
+        internal float Lateral, Charge, Steer;
         internal bool Sliding, StartBoost, PreviousGas;
     }
 
@@ -208,7 +208,7 @@ public partial class GrandPrix
                 wire.Read<OnlineInput>() is { } controls && controls.Epoch == onlinePlan!.Epoch && controls.Serial > pilot.Serial:
                 pilot.Serial = controls.Serial;
                 pilot.Held = controls.Held & (GasBit | BrakeBit | DriftBit | FreeFlightBit);
-                pilot.Steer = Math.Clamp(controls.Steer, -1, 1);
+                pilot.Steer = controls.SteeringAxis;
                 pilot.Actions |= controls.Actions & (ItemBit | LeftBit | RightBit | GuardBit | RollBit);
                 pilot.LastInput = Time.GetTicksMsec();
                 break;

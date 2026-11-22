@@ -257,6 +257,7 @@ public partial class GrandPrix : Node3D
 
     private void OpenStable()
     {
+        CloseTouchLayout(save: false);
         bool returnToEditor = editorPreview is not null;
         if (returnToEditor) ReturnFromTrackTest();
         if (loaded && rivalLines.Dirty) SaveGarage();
@@ -433,7 +434,7 @@ public partial class GrandPrix : Node3D
             if (OnlineGuest) { TickOnlineGuest(dt); return; }
         }
         if (finished || (paused && !OnlineRace)) return;
-        float steer = paused ? 0 : (Has(Key.D, Key.Right) ? 1 : 0) - (Has(Key.A, Key.Left) ? 1 : 0);
+        float steer = paused ? 0 : LocalSteering;
         TickRace(dt, !paused && Has(Key.W, Key.Up), paused || Has(Key.S, Key.Down), steer,
             !paused && IsHeld(Key.Space), useItem);
         useItem = false;
@@ -452,6 +453,11 @@ public partial class GrandPrix : Node3D
 
     public override void _Input(InputEvent input)
     {
+        if (HandleRaceTouchInput(input))
+        {
+            GetViewport().SetInputAsHandled();
+            return;
+        }
         if (input is InputEventKey key && !key.Echo)
         {
             Key code = key.PhysicalKeycode == Key.None ? key.Keycode : key.PhysicalKeycode;
@@ -497,7 +503,8 @@ public partial class GrandPrix : Node3D
         if (!racing || finished) return false;
         if (code == Key.Escape)
         {
-            if (paused && raceSettingsMenu.IsVisibleInTree()) CloseRaceSettings(focusMenu: true);
+            if (paused && EditingTouchLayout) CloseTouchLayout(save: false, focusMenu: true);
+            else if (paused && raceSettingsMenu.IsVisibleInTree()) CloseRaceSettings(focusMenu: true);
             else SetPaused(!paused);
             return true;
         }
@@ -520,7 +527,7 @@ public partial class GrandPrix : Node3D
         }
         if (what != NotificationApplicationFocusOut || testMode) return;
         pressed.Clear();
-        touchPressed.Clear();
+        ClearTouchInput();
         if (racing && !paused && !finished) SetPaused(true);
     }
 
@@ -536,6 +543,7 @@ public partial class GrandPrix : Node3D
         pendingSwipe = 0;
         requestRoll = false;
         requestGuard = false;
+        CloseTouchLayout(save: false);
         CloseRaceSettings();
         pauseUi.Visible = value;
         if (value) resumeRace.GrabFocus();

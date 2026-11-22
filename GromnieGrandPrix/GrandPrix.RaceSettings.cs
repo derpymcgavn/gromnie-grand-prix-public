@@ -47,11 +47,17 @@ public partial class GrandPrix
         AddChild(raceSettingsSaveTimer);
 
         racePauseMenu = PausePanel(pauseUi, "PauseMenu");
-        MakeModal(racePauseMenu, "RACE PAUSED", 222, 356);
+        int touchRow = mobile ? 60 : 0;
+        MakeModal(racePauseMenu, "RACE PAUSED", 222, 356 + touchRow);
         resumeRace = Action(racePauseMenu, "RESUME", 452, 303, 376, 54, () => SetPaused(false), true);
         pauseSettingsButton = Action(racePauseMenu, "SETTINGS", 452, 369, 376, 49, OpenRaceSettings);
-        pauseRestart = Action(racePauseMenu, "RESTART", 452, 429, 376, 49, OnlineRaceButton);
-        Action(racePauseMenu, "BACK TO STABLE", 452, 489, 376, 49, StableButton);
+        if (mobile)
+        {
+            touchLayoutButton = Action(racePauseMenu, "TOUCH LAYOUT", 452, 429, 376, 49, OpenTouchLayout);
+            MakeTouchLayoutMenu();
+        }
+        pauseRestart = Action(racePauseMenu, "RESTART", 452, 429 + touchRow, 376, 49, OnlineRaceButton);
+        Action(racePauseMenu, "BACK TO STABLE", 452, 489 + touchRow, 376, 49, StableButton);
 
         raceSettingsMenu = PausePanel(pauseUi, "Settings");
         MakeModal(raceSettingsMenu, "SETTINGS", 147, 556);

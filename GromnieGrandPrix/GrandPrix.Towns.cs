@@ -13,9 +13,9 @@ public partial class GrandPrix
     private readonly Dictionary<int, RidgeCircuit> ridgeCircuits = [];
     private readonly Dictionary<int, LandmarkCircuit> landmarkCircuits = [];
     private SpanSprint? spanSprint;
-    private const int XlCourseOffset = 10000, DefaultXlTown = 101;
+    private const int XlCourseOffset = 10000, YanshiXlCourseId = XlCourseOffset + 101;
     private readonly Dictionary<int, float> bestByCourse = [];
-    private int selectedTown = XlCourseOffset + DefaultXlTown, activeTown;
+    private int selectedTown = YanshiXlCourseId, activeTown;
     private string courseProblem = "";
 
     private string SelectedCourseName => CourseName(selectedTown);
@@ -247,11 +247,12 @@ public partial class GrandPrix
         var dirt = layers?.FirstOrDefault(layer => layer.Type == 7);
         var stoneRow = layers?.FirstOrDefault(layer => layer.Type == 32);
         var stone = stoneRow is null ? null : assets.Texture(stoneRow.Texture);
-        var grit = dirt is null ? null : assets.Texture(dirt.DetailTexture);
+        var grit = dirt is null || AndroidGraphics ? null : assets.Texture(dirt.DetailTexture);
         var packed = dirt is null ? null : assets.Texture(dirt.Texture);
         if (packed is not null) material.SetShaderParameter("packed_dirt", packed);
         if (stone is not null) material.SetShaderParameter("road_stone", stone);
         if (grit is not null) material.SetShaderParameter("road_grit", grit);
+        material.SetShaderParameter("road_detail", !AndroidGraphics);
         material.SetShaderParameter("course_mask", mask);
         material.SetShaderParameter("course_origin", land.WorldBounds.Position);
         material.SetShaderParameter("course_extent", land.WorldBounds.Size);

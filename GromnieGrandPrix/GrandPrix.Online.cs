@@ -36,7 +36,10 @@ public partial class GrandPrix
 
     public override void _Process(double delta)
     {
+        if (paceAndroidFrames) androidRacePacing.ScheduleFrame();
         if (voidFinaleCamera) TickVoidFinale((float)delta);
+        else if (AndroidGraphics && loaded && racing && !OnlineRace && !paused && !finished)
+            UpdateRacePresentation((float)delta);
         if (raceSocket is not { } socket) return;
         float dt = (float)delta;
         socket.Poll();

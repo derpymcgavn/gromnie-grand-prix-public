@@ -127,7 +127,7 @@ public partial class GrandPrix
         }
 
         bool duel = site.Cast.Count > 0;
-        int spectators = duel ? 5 : 10;
+        int spectators = duel || YanshiPerformanceProfile ? 5 : 10;
         for (int i = 0; i < spectators; i++)
         {
             float offset = (i % 5 - 2) * 1.65f + (i / 5) * .57f;

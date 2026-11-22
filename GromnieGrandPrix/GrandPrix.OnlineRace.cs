@@ -146,7 +146,8 @@ public partial class GrandPrix
                 racer.Root.Rotation = angles;
             }
             racer.PowerForm?.Tick(dt, racer.Hexed > 0 && racer.Speed > .4f, Vector3.Zero);
-            if (!racer.Falling && racer.Flight is null && racer.LeapHeight <= .10f && racer.PowerForm is null && !racer.Rider.TopLevel)
+            if ((!YanshiPerformanceProfile || racer == Player) && !racer.Falling && racer.Flight is null &&
+                racer.LeapHeight <= .10f && racer.PowerForm is null && !racer.Rider.TopLevel)
                 dust.SampleFeet(racer, track, racer.GroundDrifting, superDrift: HasSuperDrift(racer));
         }
         notification = Math.Max(0, notification - dt);

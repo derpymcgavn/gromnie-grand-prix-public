@@ -16,6 +16,7 @@ uniform vec3 moon_one_direction = vec3(.2,.4,-.89);
 uniform vec3 moon_two_direction = vec3(-.3,.2,-.93);
 uniform bool has_moon_one = false;
 uniform bool has_moon_two = false;
+uniform bool simple_clouds = false;
 
 float sky_hash(vec2 p) {
     vec3 q = fract(vec3(p.xyx) * .1031);
@@ -117,6 +118,17 @@ vec3 cloud_volume(vec3 ray, vec3 air, float toward_sun) {
     return mix(air, total + air * through, distance_fade);
 }
 
+vec3 cloud_layer(vec3 ray, vec3 air, float toward_sun) {
+    vec2 uv = ray.xz * (.52 / (ray.y + .51)) + TIME * wind * .42;
+    float broad = textureLod(cloud_noise, uv, 1.3).r;
+    float detail = textureLod(cloud_noise, uv * 2.2 + vec2(.47, .79), 1.0).r;
+    float cloud = broad * .78 + detail * .22;
+    float cutoff = cloud_threshold * .68 + .15;
+    float coverage = smoothstep(cutoff - .055, cutoff + .14, cloud) * smoothstep(.065, .27, ray.y);
+    vec3 light = cloud_color * mix(.90, .43, night) + sun_color * pow(toward_sun, 4.0) * sunlight * .14;
+    return mix(air, light, coverage);
+}
+
 void sky() {
     vec3 direction = normalize(EYEDIR);
     float altitude = max(0.0, direction.y);
@@ -133,7 +145,10 @@ void sky() {
         float moonlight = mix(.29, .98, night);
         air = moon_disk(air, direction, moon_one_direction, .039, moon_one, has_moon_one, vec3(.77, .85, .94), moonlight);
         air = moon_disk(air, direction, moon_two_direction, .025, moon_two, has_moon_two, vec3(.94, .59, .44), moonlight);
-        if (altitude > .065) air = cloud_volume(direction, air, toward_sun);
+        if (altitude > .065) {
+            if (simple_clouds) air = cloud_layer(direction, air, toward_sun);
+            else air = cloud_volume(direction, air, toward_sun);
+        }
     }
     COLOR = air;
 }

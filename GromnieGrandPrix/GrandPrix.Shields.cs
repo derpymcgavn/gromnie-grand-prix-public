@@ -24,7 +24,7 @@ public partial class GrandPrix
         if (!shieldHud.Visible) return;
         shieldStatus.Text = Player.GuardWindow > 0 ? "SHIELD   ·   GUARDING"
             : Player.GuardCooldown > 0 ? $"SHIELD   ·   {Player.GuardCooldown:0.0}s"
-            : "SHIELD   ·   C READY";
+            : raceTouchUi is null ? "SHIELD   ·   C READY" : "SHIELD   ·   READY";
         shieldMeter.Color = Player.GuardWindow > 0 ? shield.Tint : new Color("84eac6");
         float progress = Player.GuardWindow > 0 ? Player.GuardWindow / shield.Window
             : 1 - Player.GuardCooldown / shield.Recharge;

@@ -25,6 +25,12 @@ public partial class GrandPrix
                 QuitSoundtrackCheck();
                 return;
             }
+            if (OS.GetCmdlineUserArgs().Contains("--touch-controls-only"))
+            {
+                CheckTouchControls();
+                QuitSoundtrackCheck();
+                return;
+            }
             if (OS.GetCmdlineUserArgs().Contains("--rabbit-only"))
             {
                 CheckWhiteRabbitNavigation();
@@ -323,8 +329,15 @@ public partial class GrandPrix
                     StartRace();
                     Require(racing && activeTown == id && track.HasGradedRoad, $"the dirt road loads ({courseProblem})");
                     var road = course.GetNode<Node3D>("Terrain-following road");
-                    Require(road.GetChildCount() == 5 && road.GetNode<MeshInstance3D>("Continuous dirt road").Mesh.GetSurfaceCount() == 1,
-                        "the full road, shoulders and verges are rendered");
+                    if (AndroidGraphics)
+                    {
+                        var roadMeshes = road.GetChildren().OfType<MeshInstance3D>().ToArray();
+                        Require(roadMeshes.Length >= 5 && roadMeshes.All(mesh => mesh.Mesh.GetSurfaceCount() == 1),
+                            "the road, shoulders and verges have valid cullable meshes");
+                    }
+                    else
+                        Require(road.GetChildCount() == 5 && road.GetNode<MeshInstance3D>("Continuous dirt road").Mesh.GetSurfaceCount() == 1,
+                            "the full road, shoulders and verges are rendered");
                     for (int i = 0; i <= 12; i++)
                     {
                         float at = track.Length * i / 12;
@@ -558,7 +571,7 @@ public partial class GrandPrix
     private void CheckXlRaces()
     {
         Require(xlRoutes.Count == 5, "all five winding XL courses available");
-        int first = XlCourseOffset + DefaultXlTown;
+        int first = YanshiXlCourseId;
         if (!xlRoutes.ContainsKey(first)) first = xlRoutes.Keys.First();
         foreach (int id in xlRoutes.Keys.Order())
         {
@@ -1452,7 +1465,7 @@ public partial class GrandPrix
     private async Task CaptureXl(string folder)
     {
         if (xlRoutes.Count == 0) return;
-        int preferred = XlCourseOffset + DefaultXlTown;
+        int preferred = YanshiXlCourseId;
         ChooseCourse(xlRoutes.ContainsKey(preferred) ? preferred : xlRoutes.Keys.First());
         StartRace();
         Require(track.IsXL && track.NativeBlockCount == 64, "8×8 preview");

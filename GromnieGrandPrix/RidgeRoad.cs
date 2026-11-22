@@ -266,29 +266,38 @@ internal sealed class RidgeRoad
 
         void BuildMesh(string name, int columns, Func<int, int, Vector3> vertex, Func<int, Color> paint)
         {
-            using var mesh = new SurfaceTool();
-            mesh.Begin(Mesh.PrimitiveType.Triangles);
-            for (int i = 0; i < count; i++)
+            // A single road mesh keeps the entire circuit visible to the renderer.
+            // Give Android a separate culling bound for each stretch of road.
+            int chunkSize = OS.HasFeature("android") ? Math.Max(1, (int)(120 / step)) : segments;
+            for (int start = 0; start < segments; start += chunkSize)
             {
-                int next = open ? Math.Min(i + 1, count - 1) : (i + 1) % count;
-                int previous = open ? Math.Max(0, i - 1) : (i + count - 1) % count;
-                for (int c = 0; c < columns; c++)
+                int end = Math.Min(start + chunkSize, segments);
+                if (!exposed.AsSpan(start, end - start).Contains(true)) continue;
+                using var mesh = new SurfaceTool();
+                mesh.Begin(Mesh.PrimitiveType.Triangles);
+                for (int ring = start; ring <= end; ring++)
                 {
-                    var along = vertex(next, c) - vertex(previous, c);
-                    var across = vertex(i, Math.Min(c + 1, columns - 1)) - vertex(i, Math.Max(c - 1, 0));
-                    mesh.SetNormal(across.Cross(along).Normalized());
-                    mesh.SetColor(paint(c));
-                    mesh.AddVertex(vertex(i, c));
-                    if (c == columns - 1 || i >= segments || !exposed[i]) continue;
-                    int a = i * columns + c, b = next * columns + c;
-                    mesh.AddIndex(a); mesh.AddIndex(b); mesh.AddIndex(a + 1);
-                    mesh.AddIndex(a + 1); mesh.AddIndex(b); mesh.AddIndex(b + 1);
-                    AddRoadQuad(vertex(i, c), vertex(i, c + 1), vertex(next, c), vertex(next, c + 1));
+                    int i = ring % count;
+                    int next = open ? Math.Min(i + 1, count - 1) : (i + 1) % count;
+                    int previous = open ? Math.Max(0, i - 1) : (i + count - 1) % count;
+                    for (int c = 0; c < columns; c++)
+                    {
+                        var along = vertex(next, c) - vertex(previous, c);
+                        var across = vertex(i, Math.Min(c + 1, columns - 1)) - vertex(i, Math.Max(c - 1, 0));
+                        mesh.SetNormal(across.Cross(along).Normalized());
+                        mesh.SetColor(paint(c));
+                        mesh.AddVertex(vertex(i, c));
+                        if (c == columns - 1 || ring == end || !exposed[ring]) continue;
+                        int a = (ring - start) * columns + c, b = a + columns;
+                        mesh.AddIndex(a); mesh.AddIndex(b); mesh.AddIndex(a + 1);
+                        mesh.AddIndex(a + 1); mesh.AddIndex(b); mesh.AddIndex(b + 1);
+                        AddRoadQuad(vertex(i, c), vertex(i, c + 1), vertex(next, c), vertex(next, c + 1));
+                    }
                 }
+                var instance = BogCircuit.MeshAt(root, mesh.Commit(), Vector3.Zero, Vector3.One, dirtAndStone);
+                instance.Name = chunkSize < segments ? $"{name} {start / chunkSize + 1}" : name;
+                instance.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
             }
-            var instance = BogCircuit.MeshAt(root, mesh.Commit(), Vector3.Zero, Vector3.One, dirtAndStone);
-            instance.Name = name;
-            instance.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
         }
     }
 }

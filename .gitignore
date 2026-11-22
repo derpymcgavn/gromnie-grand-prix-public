@@ -12,6 +12,13 @@
 **/obj/
 **/NuGet.Config
 *.dat
+*.apk
+*.jks
+*.keystore
+*.p12
+*.dpapi
+**/BundledDats/
+**/RelayUrl.txt
 *.log
 *.tmp
 *.bak

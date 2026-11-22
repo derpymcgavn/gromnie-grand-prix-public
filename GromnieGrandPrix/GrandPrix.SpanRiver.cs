@@ -11,6 +11,8 @@ public partial class GrandPrix
 
     private void BuildSpanRiver(Node3D scene, SpanSprint sprint, AcLandArena land)
     {
+        // The terrain shader already reflects the sky. Avoid a second scene render on Android.
+        if (OS.HasFeature("android")) return;
         riverLevel = sprint.WaterLevel - land.ElevationOrigin;
         riverFocus = new((sprint.West + sprint.East) * .5f, sprint.RiverAxis);
         foreach (var prop in scene.GetChildren().OfType<Node3D>()

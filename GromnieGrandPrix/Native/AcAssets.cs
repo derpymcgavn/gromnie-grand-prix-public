@@ -6,6 +6,7 @@ namespace DerethSurvivors;
 public sealed partial class AcAssets : IDisposable
 {
     public DatArchive Archive { get; }
+    internal bool UseSurfaceRelief { get; } = !OS.HasFeature("android");
     private readonly DatArchive? highres;
     public AcAssets(DatArchive dat, string folder)
     {
@@ -330,7 +331,7 @@ public sealed partial class AcAssets : IDisposable
 
     private void ApplySurfaceRelief(StandardMaterial3D material, uint texture)
     {
-        if (material.ShadingMode == BaseMaterial3D.ShadingModeEnum.Unshaded ||
+        if (!UseSurfaceRelief || material.ShadingMode == BaseMaterial3D.ShadingModeEnum.Unshaded ||
             material.Transparency != BaseMaterial3D.TransparencyEnum.Disabled || material.AlbedoTexture is not { } source) return;
         if (!normalMaps.TryGetValue(texture, out var normal))
         {

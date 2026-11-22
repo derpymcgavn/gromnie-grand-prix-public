@@ -27,6 +27,7 @@ public partial class GrandPrix
     private float raceWeatherAge, trackWater;
     private Vector2 cloudWind;
     private int previousRaceWeather = -1;
+    private static readonly bool AndroidGraphics = OS.HasFeature("android");
 
     private void BuildWeather()
     {
@@ -37,6 +38,7 @@ public partial class GrandPrix
             Noise = new FastNoiseLite { Seed = 7481, Frequency = .013f, FractalOctaves = 4, FractalGain = .52f }
         };
         skyMaterial.SetShaderParameter("cloud_noise", cloudNoise);
+        skyMaterial.SetShaderParameter("simple_clouds", AndroidGraphics);
         weatherEnvironment = new Godot.Environment
         {
             BackgroundMode = Godot.Environment.BGMode.Sky,
@@ -94,7 +96,7 @@ public partial class GrandPrix
         weatherEnvironment.AmbientLightColor = new Color(weather.Ambient);
         weatherEnvironment.AmbientLightEnergy = .54f + .12f * weather.Night + .10f * weather.Rain;
         weatherEnvironment.FogLightColor = new Color(weather.Fog);
-        weatherEnvironment.FogDensity = weather.FogDensity;
+        weatherEnvironment.FogDensity = AndroidGraphics ? Math.Max(weather.FogDensity, .0026f) : weather.FogDensity;
         weatherEnvironment.FogEnabled = true;
         skyMaterial.SetShaderParameter("zenith", new Color(weather.Zenith));
         skyMaterial.SetShaderParameter("horizon", new Color(weather.Horizon));
@@ -123,9 +125,10 @@ public partial class GrandPrix
         RenderingServer.GlobalShaderParameterSet("dereth_horizon", new Vector3(horizon.R, horizon.G, horizon.B));
         RenderingServer.GlobalShaderParameterSet("dereth_zenith", new Vector3(zenith.R, zenith.G, zenith.B));
         RenderingServer.GlobalShaderParameterSet("dereth_light", light);
-        AcTerrainRenderer.SetCloudShadow(cloudNoise, Vector2.Zero, 330, weather.Night >= .9f ? .08f : .24f);
+        AcTerrainRenderer.SetCloudShadow(cloudNoise, Vector2.Zero, 330,
+            AndroidGraphics ? 0 : (weather.Night >= .9f ? .08f : .24f));
         rainMaterial.SetShaderParameter("intensity", weather.Rain);
-        rainOverlay.Visible = weather.Rain > 0;
+        rainOverlay.Visible = weather.Rain > 0 && !YanshiPerformanceProfile;
         ApplySceneGrade(weather);
         if (weatherLabel is not null) weatherLabel.Text = weather.Name;
     }
@@ -142,12 +145,13 @@ public partial class GrandPrix
         {
             float rain = currentWeather.Rain * (1 - Mathf.SmoothStep(22f, 37f, raceWeatherAge));
             trackWater = Mathf.MoveToward(trackWater, rain, dt * (rain > trackWater ? .094f : .036f));
-            rainOverlay.Visible = rain > .02f;
+            rainOverlay.Visible = rain > .02f && !YanshiPerformanceProfile;
             rainMaterial.SetShaderParameter("intensity", rain);
             RenderingServer.GlobalShaderParameterSet("dereth_rain", rain);
             RenderingServer.GlobalShaderParameterSet("dereth_wetness", trackWater);
         }
-        AcTerrainRenderer.SetCloudShadow(cloudNoise, cloudWind * (worldTime * 330f), 330,
-            currentWeather.Night >= .9f ? .08f : .24f);
+        if (!AndroidGraphics)
+            AcTerrainRenderer.SetCloudShadow(cloudNoise, cloudWind * (worldTime * 330f), 330,
+                currentWeather.Night >= .9f ? .08f : .24f);
     }
 }

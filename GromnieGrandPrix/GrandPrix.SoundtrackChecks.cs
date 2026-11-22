@@ -40,6 +40,14 @@ public partial class GrandPrix
                 !weatherSun.ShadowEnabled && !ShowMusicHud && !FreeFlightControls,
             "speed, flight and graphics options update in the paused race");
 
+        raceSettingsMenu.GetNode<Button>("UpscalingTab").EmitSignal(Button.SignalName.Pressed);
+        var upscaler = raceSettingsMenu.GetNode<OptionButton>("Upscaling/Upscaler");
+        var renderQuality = raceSettingsMenu.GetNode<OptionButton>("Upscaling/RenderQuality");
+        Require(raceSettingsMenu.GetNode<Control>("Upscaling").Visible && !raceSettingsMenu.GetNode<Control>("Graphics").Visible &&
+                upscaler.Selected == (int)RaceUpscaler.Off && renderQuality.Disabled &&
+                upscaler.IsItemDisabled((int)RaceUpscaler.Fsr2) == !UpscalerAvailable(RaceUpscaler.Fsr2),
+            "the Upscaling tab reflects the current renderer and native-resolution default");
+
         raceSettingsMenu.GetNode<Button>("AudioTab").EmitSignal(Button.SignalName.Pressed);
         Require(raceSettingsMenu.GetNode<Control>("Audio").Visible && !raceSettingsMenu.GetNode<Control>("Graphics").Visible,
             "the Settings audio tab opens");
@@ -52,8 +60,9 @@ public partial class GrandPrix
         string config = $"user://race-settings-test-{Time.GetTicksUsec()}.cfg";
         try
         {
-            WriteRaceSettings(config, raceSettings);
-            Require(ReadRaceSettings(config) == raceSettings, "graphics, speed units and volume survive saving settings");
+            var expected = raceSettings with { Upscaler = RaceUpscaler.Fsr2, RenderQuality = RaceRenderQuality.Balanced };
+            WriteRaceSettings(config, expected);
+            Require(ReadRaceSettings(config) == expected, "graphics, upscaling, speed units and volume survive saving settings");
         }
         finally { DirAccess.RemoveAbsolute(ProjectSettings.GlobalizePath(config)); }
 

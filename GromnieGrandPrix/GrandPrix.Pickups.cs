@@ -89,7 +89,7 @@ public partial class GrandPrix
 
     private void UpdatePickupVisuals(float time, bool refreshAll = false)
     {
-        bool checkRange = track.IsVoid && !refreshAll;
+        bool checkRange = !refreshAll && (track.IsVoid || YanshiPerformanceProfile);
         Vector3 eye = checkRange ? camera.Position : Vector3.Zero;
         Vector3? rabbitEye = checkRange && rabbitCameraPanel.Visible ? rabbitCamera.Position : null;
         foreach (var pickup in pickups)

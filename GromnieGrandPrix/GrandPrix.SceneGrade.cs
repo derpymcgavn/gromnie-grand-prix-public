@@ -6,6 +6,7 @@ public partial class GrandPrix
 
     private void BuildSceneGrade()
     {
+        if (OS.HasFeature("android")) return;
         var layer = new CanvasLayer { Layer = 0 };
         AddChild(layer);
         sceneGrade = new ColorRect

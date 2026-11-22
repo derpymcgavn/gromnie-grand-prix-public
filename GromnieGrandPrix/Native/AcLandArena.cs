@@ -25,6 +25,7 @@ public sealed partial class AcLandArena
     private readonly Func<System.Numerics.Vector3,bool> movementValid;
     private AcTerrainRenderer? terrainRenderer;
     private readonly Dictionary<(int X,int Y),Vector3> terrainNormals=new();
+    private static readonly bool LimitDistantScenery = OS.HasFeature("android");
     public int PlacedObjects { get; private set; }
     public int FailedObjects { get; private set; }
     public ProjectileWorld Physics { get; } = new();
@@ -266,6 +267,44 @@ public sealed partial class AcLandArena
                 int before=PlacedObjects;Place(root, assets, block, item.Model, pose, scale);if(PlacedObjects>before)natural++;
             }
         }
+        if (LimitDistantScenery) BatchStaticScenery(root);
+    }
+
+    private static void BatchStaticScenery(Node3D root)
+    {
+        const float cellSize = 80;
+        // Placement collision and bounds have already been recorded. Only batch standalone, static meshes.
+        var groups = root.GetChildren().OfType<MeshInstance3D>()
+            .Where(node => node.HasMeta("ac_model") && node.Mesh is not null)
+            .GroupBy(node => (Mesh: node.Mesh!, X: Mathf.FloorToInt(node.Position.X / cellSize),
+                Z: Mathf.FloorToInt(node.Position.Z / cellSize), Range: Mathf.CeilToInt(node.VisibilityRangeEnd / 35f) * 35f));
+        foreach (var group in groups)
+        {
+            var nodes = group.ToArray();
+            if (nodes.Length < 2) continue;
+            Vector3 origin = nodes[0].Position;
+            var instances = new MultiMesh
+            {
+                TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
+                Mesh = group.Key.Mesh,
+                InstanceCount = nodes.Length
+            };
+            for (int i = 0; i < nodes.Length; i++)
+            {
+                Transform3D transform = nodes[i].Transform;
+                transform.Origin -= origin;
+                instances.SetInstanceTransform(i, transform);
+                nodes[i].Free();
+            }
+            root.AddChild(new MultiMeshInstance3D
+            {
+                Name = "Static scenery instances",
+                Position = origin,
+                Multimesh = instances,
+                VisibilityRangeEnd = group.Key.Range,
+                VisibilityRangeEndMargin = 22
+            }, forceReadableName: true);
+        }
     }
     private void Place(Node3D root, AcAssets assets,AcWorldData.Block block, uint model, AcFormats.Pose pose, float scale, bool isBuilding = false)
     {
@@ -280,11 +319,26 @@ public sealed partial class AcLandArena
             if (node is MeshInstance3D meshNode) meshNode.SetMeta("ac_model", (long)model);
             string collision=AddPhysics(node, assets);
             var bounds = Bounds(node);
+            if (LimitDistantScenery)
+            {
+                float size = Math.Max(bounds.Size.X, Math.Max(bounds.Size.Y, bounds.Size.Z)) * scale;
+                float range = isBuilding ? 525 : Mathf.Clamp(size * 30, 115, 430);
+                if (node is MeshInstance3D mesh) LimitRange(mesh, range);
+                else
+                    foreach (var part in node.FindChildren("*", nameof(MeshInstance3D), true, false).OfType<MeshInstance3D>())
+                        LimitRange(part, range);
+            }
             float nativeRadius=model>>24==2?assets.Setup(model).Cylinders.FirstOrDefault()?.Radius??assets.Setup(model).Spheres.FirstOrDefault()?.Radius??0:0;
             CollisionObjects.Add(new(model,node.GlobalPosition,collision,nativeRadius*scale,Math.Max(bounds.Size.X,bounds.Size.Z)*scale*.5f,node.GlobalTransform,block.Id,isBuilding));
             PlacedObjects++;
         }
         catch (Exception ex) { if (node is not null) node.QueueFree(); FailedObjects++; GD.Print($"Landblock prop {model:X8} skipped: {ex.Message}"); }
+    }
+
+    private static void LimitRange(MeshInstance3D mesh, float range)
+    {
+        mesh.VisibilityRangeEnd = range;
+        mesh.VisibilityRangeEndMargin = 22;
     }
 
     private string AddPhysics(Node3D node, AcAssets assets)

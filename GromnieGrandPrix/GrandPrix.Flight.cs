@@ -15,8 +15,12 @@ public partial class GrandPrix
     {
         if (flight.Rolling) return "Barrel rolling";
         if (flight.RollCooldown > 0) return $"Roll ready in {flight.RollCooldown:F1}s";
+        if (raceTouchUi is not null)
+        {
+            if (!FreeFlightControls) return "Steer to bank · Air roll";
+            return flight.DiveReady ? "Bank · Dive · Climb · Air roll" : "Release, then hold Dive";
+        }
         if (!FreeFlightControls) return "A/D bank · R barrel roll";
-        if (raceTouchUi is not null) return flight.DiveReady ? "Bank · Dive · Climb · Air roll" : "Release, then tap Dive";
         return flight.DiveReady ? "A/D bank · W dive · S climb · R roll" : "A/D bank · Re-press W to dive · S climb";
     }
 
@@ -27,7 +31,7 @@ public partial class GrandPrix
     {
         flyover = activeTown switch
         {
-            XlCourseOffset + DefaultXlTown => new Flyover("YANSHI FLYOVER", 74, 385, 62, -77),
+            YanshiXlCourseId => new Flyover("YANSHI FLYOVER", 74, 385, 62, -77),
             XlCourseOffset + 72 => new Flyover("RIVER BLUFF FLYOVER", 108, 376, 57, -86),
             VoidCourseId => VoidFlyover(track),
             _ => null

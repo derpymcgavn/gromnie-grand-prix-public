@@ -13,6 +13,7 @@ uniform sampler2D cloud_shadow_map : hint_default_black, filter_linear_mipmap, r
 uniform vec2 cloud_shadow_offset;
 uniform float cloud_shadow_scale = 256.0;
 uniform float cloud_shadow_strength;
+uniform bool road_detail = true;
 
 varying vec3 world_point;
 varying vec3 world_normal;
@@ -45,19 +46,31 @@ float gravel_patch(vec2 at) {
 }
 
 void fragment() {
-    vec3 axis = pow(abs(normalize(world_normal)), vec3(4.0));
-    axis /= max(dot(axis, vec3(1.0)), .001);
-    vec3 dirt = rock_texture(packed_dirt, world_point / 8.5, axis);
-    vec3 stone = rock_texture(road_stone, world_point / 4.7, axis);
-    float grain = dot(rock_texture(road_grit, world_point / 1.45, axis), vec3(.21, .72, .07));
-    float patch = gravel_patch(world_point.xz * .23 + vec2(.21, .63));
+    vec3 dirt;
+    vec3 stone;
+    float grain = .5;
+    float patch = .5;
+    if (road_detail) {
+        vec3 axis = pow(abs(normalize(world_normal)), vec3(4.0));
+        axis /= max(dot(axis, vec3(1.0)), .001);
+        dirt = rock_texture(packed_dirt, world_point / 8.5, axis);
+        stone = rock_texture(road_stone, world_point / 4.7, axis);
+        grain = dot(rock_texture(road_grit, world_point / 1.45, axis), vec3(.21, .72, .07));
+        patch = gravel_patch(world_point.xz * .23 + vec2(.21, .63));
+    } else {
+        dirt = texture(packed_dirt, world_point.xz / 8.5).rgb;
+        stone = texture(road_stone, world_point.xz / 4.7).rgb;
+    }
     float gravel = clamp(stone_weight + smoothstep(.30, .78, patch) * .43 + (grain - .48) * .16, .08, .96);
     float dust = dot(dirt, vec3(.21, .72, .07));
     vec3 earth = mix(dirt, dust * vec3(1.13, .91, .65), .58);
     vec3 surface = mix(earth * .92, stone * vec3(.81, .79, .74), gravel);
-    float near_detail = 1.0 - smoothstep(34.0, 136.0, length(VERTEX));
-    float height = dot(surface, vec3(.21, .72, .07)) * mix(.13, .25, gravel) + grain * .035;
-    NORMAL = normalize(mix(NORMAL, surface_relief(VERTEX, NORMAL, height, .65), near_detail));
+    float near_detail = 0.0;
+    if (road_detail) {
+        near_detail = 1.0 - smoothstep(34.0, 136.0, length(VERTEX));
+        float height = dot(surface, vec3(.21, .72, .07)) * mix(.13, .25, gravel) + grain * .035;
+        NORMAL = normalize(mix(NORMAL, surface_relief(VERTEX, NORMAL, height, .65), near_detail));
+    }
     vec3 base = surface * (0.94 + patch * .11 + (grain - .5) * .16 * near_detail);
     if (cloud_shadow_strength > 0.0) {
         float cloud = texture(cloud_shadow_map, (world_point.xz + cloud_shadow_offset) / cloud_shadow_scale).r;
@@ -70,7 +83,7 @@ void fragment() {
     ALBEDO = base;
     EMISSION = reflected;
     ALPHA = smoothstep(.08, .95, verge_cover);
-    ALPHA_SCISSOR_THRESHOLD = mix(.14, .86, gravel_patch(world_point.xz * 5.5));
+    ALPHA_SCISSOR_THRESHOLD = road_detail ? mix(.14, .86, gravel_patch(world_point.xz * 5.5)) : .45;
     ROUGHNESS = .98;
     SPECULAR = 0.0;
 }

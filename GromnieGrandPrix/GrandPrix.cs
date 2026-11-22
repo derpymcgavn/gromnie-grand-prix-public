@@ -224,9 +224,13 @@ public partial class GrandPrix : Node3D
         raceUi.Show();
         UpdateOnlineRaceButtons();
         ResetRace();
+        if (AndroidGraphics) ApplyRaceUpscaling(GetViewport());
         SetRaceCamera(1);
         UpdateSpanReflection();
         if (track.IsVoid) WarmVoidRaceGraphics();
+        if (AndroidGraphics) GD.Print($"Android race ready: {track.Name}.");
+        if (YanshiPerformanceProfile)
+            GD.Print($"Yanshi Android profile: scale {GetViewport().Scaling3DScale:P0}, cap {Engine.MaxFps} FPS.");
     }
 
     private CharacterAppearance RivalLook(int index)
@@ -257,6 +261,7 @@ public partial class GrandPrix : Node3D
         if (returnToEditor) ReturnFromTrackTest();
         if (loaded && rivalLines.Dirty) SaveGarage();
         racing = paused = finished = false;
+        if (AndroidGraphics) ApplyRaceUpscaling(GetViewport());
         ResetVoidProgress();
         StopSpanReflection();
         ApplyWeather(WeatherPresets[0]);
@@ -298,8 +303,13 @@ public partial class GrandPrix : Node3D
 
     private void PositionRaceCamera(float weight)
     {
-        camera.Far = track.IsVoid ? 2900 : track.IsCustom ? Mathf.Clamp(track.NativeBounds.Size.X * 1.25f, 470, 2600)
+        float viewDistance = track.IsVoid ? 2900 : track.IsCustom ? Mathf.Clamp(track.NativeBounds.Size.X * 1.25f, 470, 2600)
             : track.IsXL ? 2200 : track.IsSprint ? 1500 : track.IsMedium ? 1850 : 470;
+        if (YanshiPerformanceProfile)
+            viewDistance = Math.Min(viewDistance, Player.Flight is not null ? 550 : 400);
+        else if (AndroidGraphics)
+            viewDistance = Math.Min(viewDistance, track.IsVoid || Player.Flight is not null ? 1250 : 850);
+        if (camera.Far != viewDistance) camera.Far = viewDistance;
         camera.Projection = raceView == RaceView.Isometric ? Camera3D.ProjectionType.Orthogonal : Camera3D.ProjectionType.Perspective;
         camera.Near = raceView == RaceView.FirstPerson ? .12f : .1f;
         bool wide = raceView == RaceView.WideChase;
@@ -428,7 +438,12 @@ public partial class GrandPrix : Node3D
             !paused && IsHeld(Key.Space), useItem);
         useItem = false;
         if (OnlineRace) SendOnlineState(dt);
-        if (!racing || voidFinaleCamera) return;
+        if (!racing || voidFinaleCamera || (AndroidGraphics && !OnlineRace)) return;
+        UpdateRacePresentation(dt);
+    }
+
+    private void UpdateRacePresentation(float dt)
+    {
         SetRaceCamera(1 - Mathf.Exp(-8.2f * dt));
         UpdateSpanReflection();
         UpdateSpeedBlur(dt);
@@ -509,7 +524,7 @@ public partial class GrandPrix : Node3D
         if (racing && !paused && !finished) SetPaused(true);
     }
 
-    private bool IsHeld(Key key) => pressed.Contains(key) || touchPressed.Contains(key);
+    private bool IsHeld(Key key) => pressed.Contains(key) || IsTouchHeld(key);
     private bool Has(Key a, Key b) => IsHeld(a) || IsHeld(b);
 
     private void SetPaused(bool value)

@@ -232,7 +232,7 @@ public partial class GrandPrix
             float steering = (i == 0 ? lateral : remote?.Lateral ?? rivalDrivers[i - 1].LaneVelocity) / (7 * SteeringPace(racer.Speed)) *
                 (driftingNow ? 1 : .52f);
             racer.Draw(track, dt, racer.Speed > .4f, steering);
-            if (racer.Flight is null && racer.LeapHeight <= .10f && racer.PowerForm is null)
+            if ((!YanshiPerformanceProfile || racer == Player) && racer.Flight is null && racer.LeapHeight <= .10f && racer.PowerForm is null)
                 dust.SampleFeet(racer, track, driftingNow, superDrift: HasSuperDrift(racer));
         }
 

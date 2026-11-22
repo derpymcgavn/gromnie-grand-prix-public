@@ -150,7 +150,7 @@ public partial class GrandPrix
         calloutText.AddThemeColorOverride("font_outline_color", new("192920"));
         calloutText.AddThemeConstantOverride("outline_size", 11);
 
-        int itemY = mobile ? 491 : 655;
+        int itemY = mobile ? 470 : 655;
         Plate(raceUi, 28, itemY, 322, 90, "172821ec", "7a8f65");
         itemIcon = new TextureRect { Position = new(45, itemY + 25), Size = new(38, 38), ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize };
         itemIcon.MouseFilter = Control.MouseFilterEnum.Ignore;
@@ -160,7 +160,7 @@ public partial class GrandPrix
         itemText = Text(raceUi, "", 94, itemY + 23, 244, 24);
         itemHint = Text(raceUi, "", 94, itemY + 56, 244, 13, Soft);
         itemHint.TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis;
-        int meterY = mobile ? 446 : 610;
+        int meterY = mobile ? 425 : 610;
         Plate(raceUi, 1073, meterY, 179, 135, "172821ec", "7a8f65");
         Text(raceUi, "RIDER BALANCE", 1089, meterY + 9, 149, 13, Gold, HorizontalAlignment.Center);
         balanceMeter = Meter(raceUi, 1089, meterY + 32, new("e9ad60"));

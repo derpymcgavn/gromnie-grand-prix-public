@@ -49,6 +49,7 @@ public sealed class AcTerrainRenderer
         uniform sampler2DArray terrain_albedos : source_color, filter_linear_mipmap, repeat_enable;
         uniform sampler2DArray terrain_masks : filter_linear_mipmap, repeat_disable;
         uniform sampler2D surface_grain : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+        uniform bool terrain_detail = true;
         uniform float terrain_albedo_scale : hint_range(0.0,1.0)=0.62;
         uniform sampler2D course_mask : hint_default_black, filter_linear_mipmap, repeat_disable;
         uniform vec2 course_origin = vec2(-288.0);
@@ -116,12 +117,16 @@ public sealed class AcTerrainRenderer
                 color=mix(color,soil,course.b*.26);
                 color=mix(color,mix(soil,stone,.24),course.r*.91);
             }
-            float grain=texture(surface_grain,cloud_world_xz/1.04).r;
-            float height=dot(color,vec3(.2126,.7152,.0722))*.20+(grain-.5)*.056;
-            float close_detail=1.0-smoothstep(36.0,145.0,length(VERTEX));
             vec3 ground_up=normalize(mat3(INV_VIEW_MATRIX)*NORMAL);
-            NORMAL=normalize(mix(NORMAL,surface_relief(VERTEX,NORMAL,height,.44),close_detail));
-            ALBEDO=clamp(color*terrain_albedo_scale*(1.0+(grain-.5)*.18*close_detail),vec3(0.0),vec3(1.0));
+            float detail=1.0;
+            if(terrain_detail){
+                float grain=texture(surface_grain,cloud_world_xz/1.04).r;
+                float height=dot(color,vec3(.2126,.7152,.0722))*.20+(grain-.5)*.056;
+                float close_detail=1.0-smoothstep(36.0,145.0,length(VERTEX));
+                NORMAL=normalize(mix(NORMAL,surface_relief(VERTEX,NORMAL,height,.44),close_detail));
+                detail+=(grain-.5)*.18*close_detail;
+            }
+            ALBEDO=clamp(color*terrain_albedo_scale*detail,vec3(0.0),vec3(1.0));
             if(cloud_shadow_strength>0.0){
                 float coverage=texture(cloud_shadow_map,(cloud_world_xz+cloud_shadow_offset)/cloud_shadow_scale).r;
                 ALBEDO*=1.0-cloud_shadow_strength*coverage;
@@ -170,7 +175,9 @@ public sealed class AcTerrainRenderer
         var maskData=new Vector4[64];for(int i=0;i<masks.Length;i++)maskData[i]=new(maskScale[i].X,maskScale[i].Y,1f/maskSizes[i].X,1f/maskSizes[i].Y);
         Material=new ShaderMaterial{Shader=new Shader{Code=ShaderCode}};
         Material.SetShaderParameter("terrain_albedos",albedo);Material.SetShaderParameter("terrain_masks",alpha);
-        if (assets.Texture(descriptors[7].DetailTexture) is { } grain) Material.SetShaderParameter("surface_grain", grain);
+        Material.SetShaderParameter("terrain_detail", assets.UseSurfaceRelief);
+        if (assets.UseSurfaceRelief && assets.Texture(descriptors[7].DetailTexture) is { } grain)
+            Material.SetShaderParameter("surface_grain", grain);
         Material.SetShaderParameter("terrain_tiling",tiling);Material.SetShaderParameter("terrain_uv_scale",albedoScale);Material.SetShaderParameter("mask_uv_data",maskData);
         InitializeCloudShadow(Material);
         GD.Print($"NATIVE TERRAIN ARRAYS: albedos={AlbedoLayers} masks={MaskLayers} albedo={albedo.GetWidth()}x{albedo.GetHeight()} alpha={alpha.GetWidth()}x{alpha.GetHeight()} mip-bytes={ArrayBytes} native-pixels=repeated-not-resized opaque-passes-per-block=1");

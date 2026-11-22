@@ -1,8 +1,12 @@
 # Gromnie Grand Prix
 
-A Windows arcade racer built in Godot. Ride a gromnie through Dereth, collect spell pickups, and build custom circuits on native landblocks.
+An arcade racer built in Godot. Ride a gromnie through Dereth, collect spell pickups, and build custom circuits on native landblocks.
 
-## Run the game
+## Windows download
+
+Download and run `Gromnie-Grand-Prix-Setup-x64.exe` from the [latest release](https://github.com/derpymcgavn/gromnie-grand-prix-public/releases/latest). On first launch, choose the folder containing `client_portal.dat` and `client_cell_1.dat` from your Asheron's Call installation.
+
+## Run from source
 
 Use Godot 4.7.2 .NET, the .NET 8 SDK, and your installed Asheron’s Call client DATs. The game reads `client_portal.dat` and `client_cell_1.dat` from the installation folder.
 
@@ -22,8 +26,12 @@ To export a Windows x64 build, install the matching Godot .NET export templates 
 
 Use the [Windows installer recipe](deploy/windows/README.md) to package the exported game and soundtrack with the DAT setup guide and uninstaller.
 
+## Android
+
+The Android ARM64 build imports both DAT files from a folder selected in Android's file picker. See the [Android build and setup instructions](GromnieGrandPrix/Android/README.md).
+
 ## Verify a local build
 
 Run the same command with `-SmokeTest` to build the project and run the headless game checks.
 
-See the [third-party notices](GromnieGrandPrix/THIRD_PARTY_NOTICES.txt) for the OpenAC terrain code notice.
+See the [third-party notices](GromnieGrandPrix/THIRD_PARTY_NOTICES.txt) for the OpenAC terrain code notice and the [Godot Engine license](https://godotengine.org/license) for the engine and its dependencies.

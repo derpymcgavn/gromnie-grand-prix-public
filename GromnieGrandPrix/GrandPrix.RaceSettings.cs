@@ -7,19 +7,30 @@ public partial class GrandPrix
 
     private sealed record RaceSettings(bool? Fullscreen = null, int Msaa = 2, bool Shadows = true,
         bool SpeedBlur = true, bool MilesPerHour = false, bool MusicHud = true, bool FreeFlight = true,
-        int MasterVolume = 100, int MusicVolume = 70, int EffectsVolume = 100);
+        int MasterVolume = 100, int MusicVolume = 70, int EffectsVolume = 100,
+        RaceUpscaler Upscaler = RaceUpscaler.Off, RaceRenderQuality RenderQuality = RaceRenderQuality.Quality);
+
+    private static readonly string[] UpscalerNames = ["Off", "AMD FSR 1.0", "AMD FSR 2.2", "MetalFX Spatial", "MetalFX Temporal", "Bilinear"];
+    private static readonly string[] RenderQualityNames = ["Ultra Quality", "Quality", "Balanced", "Performance"];
 
     private RaceSettings raceSettings = new();
     private Control racePauseMenu = null!, raceSettingsMenu = null!;
-    private Button resumeRace = null!, pauseSettingsButton = null!, settingsGraphicsTab = null!, settingsAudioTab = null!;
+    private Button resumeRace = null!, pauseSettingsButton = null!, settingsGraphicsTab = null!;
+    private ButtonGroup settingsTabs = null!;
+    private OptionButton upscalerPicker = null!, renderQualityPicker = null!, msaaPicker = null!;
+    private Label upscalingStatus = null!;
     private Godot.Timer? raceSettingsSaveTimer;
     private bool UseMilesPerHour => raceSettings.MilesPerHour;
     private bool ShowMusicHud => raceSettings.MusicHud;
     private bool FreeFlightControls => raceSettings.FreeFlight;
 
+    private static RaceSettings DefaultRaceSettings() => OS.HasFeature("android")
+        ? new(Msaa: 0, Shadows: false, SpeedBlur: false, Upscaler: RaceUpscaler.Bilinear, RenderQuality: RaceRenderQuality.Performance)
+        : new();
+
     private void MakeRacePauseMenu(bool mobile)
     {
-        if (!testMode) raceSettings = ReadRaceSettings(RaceSettingsFile);
+        raceSettings = testMode ? DefaultRaceSettings() : ReadRaceSettings(RaceSettingsFile);
 
         if (AudioServer.GetBusIndex(RaceAudio.EffectsBusName) < 0)
         {
@@ -29,6 +40,8 @@ public partial class GrandPrix
             AudioServer.SetBusSend(bus, MasterBusName);
         }
         ApplyRaceSettings();
+        if (mobile)
+            GD.Print($"Android graphics: 3D scale {GetViewport().Scaling3DScale:P0}, MSAA {GetViewport().Msaa3D}, shadows {raceSettings.Shadows}, speed blur {raceSettings.SpeedBlur}.");
         raceSettingsSaveTimer = new Godot.Timer { OneShot = true, WaitTime = .35 };
         raceSettingsSaveTimer.Timeout += () => WriteRaceSettings(RaceSettingsFile, raceSettings);
         AddChild(raceSettingsSaveTimer);
@@ -43,19 +56,29 @@ public partial class GrandPrix
         raceSettingsMenu = PausePanel(pauseUi, "Settings");
         MakeModal(raceSettingsMenu, "SETTINGS", 147, 556);
         var graphics = PausePanel(raceSettingsMenu, "Graphics");
+        var upscaling = PausePanel(raceSettingsMenu, "Upscaling");
         var audio = PausePanel(raceSettingsMenu, "Audio");
-        var tabs = new ButtonGroup();
-        settingsGraphicsTab = Action(raceSettingsMenu, "GRAPHICS", 420, 208, 211, 42, () => SelectTab(false));
-        settingsAudioTab = Action(raceSettingsMenu, "AUDIO", 649, 208, 211, 42, () => SelectTab(true));
-        settingsGraphicsTab.Name = "GraphicsTab";
-        settingsAudioTab.Name = "AudioTab";
-        foreach (var tab in new[] { settingsGraphicsTab, settingsAudioTab })
+        settingsTabs = new ButtonGroup();
+        settingsGraphicsTab = MakeTab("GraphicsTab", "GRAPHICS", 420, graphics);
+        MakeTab("UpscalingTab", "UPSCALING", 570, upscaling);
+        MakeTab("AudioTab", "AUDIO", 720, audio);
+        settingsGraphicsTab.ButtonPressed = true;
+        SelectTab(graphics);
+
+        Button MakeTab(string name, string title, int x, Control panel)
         {
+            Button tab = null!;
+            tab = Action(raceSettingsMenu, title, x, 208, 140, 42, () =>
+            {
+                tab.ButtonPressed = true;
+                SelectTab(panel);
+            });
+            tab.Name = name;
             tab.ToggleMode = true;
-            tab.ButtonGroup = tabs;
+            tab.ButtonGroup = settingsTabs;
             tab.AddThemeStyleboxOverride("pressed", Surface("446d50", "abd1a0", 7));
+            return tab;
         }
-        SelectTab(false);
 
         int row = mobile ? 289 : 267;
         if (!mobile)
@@ -64,7 +87,7 @@ public partial class GrandPrix
                 value => raceSettings with { Fullscreen = value == 1 });
             row += 51;
         }
-        Select(graphics, "AntiAliasing", "Anti-aliasing", row, ["Off", "2× MSAA", "4× MSAA", "8× MSAA"], raceSettings.Msaa,
+        msaaPicker = Select(graphics, "AntiAliasing", "Anti-aliasing", row, ["Off", "2× MSAA", "4× MSAA", "8× MSAA"], raceSettings.Msaa,
             value => raceSettings with { Msaa = value });
         Select(graphics, "DynamicShadows", "Dynamic shadows", row + 51, ["Off", "On"], raceSettings.Shadows ? 1 : 0,
             value => raceSettings with { Shadows = value == 1 });
@@ -77,20 +100,39 @@ public partial class GrandPrix
         Select(graphics, "FlightControls", "Flight controls", row + 255, ["Guided", "Free"], FreeFlightControls ? 1 : 0,
             value => raceSettings with { FreeFlight = value == 1 });
 
+        upscalerPicker = Select(upscaling, "Upscaler", "Upscaler", 281, UpscalerNames, 0,
+            value => raceSettings with { Upscaler = (RaceUpscaler)value });
+        upscalerPicker.AllowReselect = true;
+        for (int i = 0; i < UpscalerNames.Length; i++)
+        {
+            var mode = (RaceUpscaler)i;
+            if (UpscalerAvailable(mode)) continue;
+            upscalerPicker.SetItemDisabled(i, true);
+            upscalerPicker.SetItemTooltip(i, mode is RaceUpscaler.Fsr1 or RaceUpscaler.Fsr2
+                ? "Requires the Forward+ renderer."
+                : "Requires the Metal driver and compatible Apple graphics.");
+        }
+        renderQualityPicker = Select(upscaling, "RenderQuality", "Quality preset", 338, RenderQualityNames, 0,
+            value => raceSettings with { RenderQuality = (RaceRenderQuality)value });
+        Text(upscaling, ActiveRendererLabel(), 421, 405, 437, 16, Soft);
+        upscalingStatus = Text(upscaling, "", 421, 442, 437, 17, Mint);
+        upscalingStatus.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        RefreshUpscalingControls();
+
         Volume("MasterVolume", "Master volume", 281, raceSettings.MasterVolume, value => raceSettings with { MasterVolume = value });
         Volume("MusicVolume", "Music volume", 376, raceSettings.MusicVolume, value => raceSettings with { MusicVolume = value });
         Volume("EffectsVolume", "Effects volume", 471, raceSettings.EffectsVolume, value => raceSettings with { EffectsVolume = value });
         Action(raceSettingsMenu, "BACK", 420, 635, 440, 43, () => CloseRaceSettings(focusMenu: true)).Name = "Back";
         raceSettingsMenu.Hide();
 
-        void SelectTab(bool showAudio)
+        void SelectTab(Control active)
         {
-            (showAudio ? settingsAudioTab : settingsGraphicsTab).ButtonPressed = true;
-            graphics.Visible = !showAudio;
-            audio.Visible = showAudio;
+            graphics.Visible = active == graphics;
+            upscaling.Visible = active == upscaling;
+            audio.Visible = active == audio;
         }
 
-        void Select(Control parent, string name, string label, int y, string[] choices, int selected, Func<int, RaceSettings> edit)
+        OptionButton Select(Control parent, string name, string label, int y, string[] choices, int selected, Func<int, RaceSettings> edit)
         {
             Text(parent, label, 421, y + 9, 188, 17);
             var picker = new OptionButton { Name = name, Position = new(623, y), Size = new(237, 39), Theme = ThemeForUi() };
@@ -98,6 +140,7 @@ public partial class GrandPrix
             picker.Select(selected);
             picker.ItemSelected += index => ChangeRaceSettings(edit((int)index));
             parent.AddChild(picker);
+            return picker;
         }
 
         void Volume(string name, string label, int y, int selected, Func<int, RaceSettings> edit)
@@ -131,7 +174,7 @@ public partial class GrandPrix
     {
         racePauseMenu.Hide();
         raceSettingsMenu.Show();
-        (settingsAudioTab.ButtonPressed ? settingsAudioTab : settingsGraphicsTab).GrabFocus();
+        (settingsTabs.GetPressedButton() ?? settingsGraphicsTab).GrabFocus();
     }
 
     private void CloseRaceSettings(bool focusMenu = false)
@@ -150,14 +193,14 @@ public partial class GrandPrix
         bool changeSpeedUnits = raceSettings.MilesPerHour != settings.MilesPerHour;
         raceSettings = settings;
         ApplyRaceSettings();
+        RefreshUpscalingControls();
         if (changeSpeedUnits && racing && racers.Count > localRacerIndex) UpdateRaceSpeedUi();
         if (!testMode) raceSettingsSaveTimer?.Start();
     }
 
     private void ApplyRaceSettings()
     {
-        var viewport = GetViewport();
-        if (viewport.Msaa3D != (Viewport.Msaa)raceSettings.Msaa) viewport.Msaa3D = (Viewport.Msaa)raceSettings.Msaa;
+        ApplyRaceUpscaling(GetViewport());
         weatherSun.ShadowEnabled = raceSettings.Shadows;
         if (!raceSettings.SpeedBlur) ClearSpeedBlur();
         if (raceSettings.Fullscreen is bool fullscreen && fullscreen != IsFullscreen &&
@@ -166,6 +209,40 @@ public partial class GrandPrix
         SetBusLevel(MasterBusName, raceSettings.MasterVolume);
         SetBusLevel(MusicBusName, raceSettings.MusicVolume);
         SetBusLevel(RaceAudio.EffectsBusName, raceSettings.EffectsVolume);
+    }
+
+    private void RefreshUpscalingControls()
+    {
+        var supported = UpscalerAvailable(raceSettings.Upscaler);
+        var effective = supported ? raceSettings.Upscaler : RaceUpscaler.Off;
+        upscalerPicker.Select((int)effective);
+        renderQualityPicker.Select((int)raceSettings.RenderQuality);
+        renderQualityPicker.Disabled = effective == RaceUpscaler.Off;
+        msaaPicker.Disabled = effective is RaceUpscaler.Fsr2 or RaceUpscaler.MetalFxTemporal;
+        msaaPicker.TooltipText = msaaPicker.Disabled ? "Temporal upscaling handles anti-aliasing." : "";
+        upscalingStatus.Text = ActiveUpscalingDescription();
+    }
+
+    private static string ActiveRendererLabel()
+    {
+        var method = RenderingServer.GetCurrentRenderingMethod() switch
+        {
+            "forward_plus" => "Forward+",
+            "mobile" => "Mobile",
+            "gl_compatibility" => "Compatibility",
+            var value => value
+        };
+        var driver = RenderingServer.GetCurrentRenderingDriverName() switch
+        {
+            "d3d12" => "Direct3D 12",
+            "vulkan" => "Vulkan",
+            "metal" => "Metal",
+            "opengl3" => "OpenGL",
+            "opengl3_es" => "OpenGL ES",
+            "opengl3_angle" => "OpenGL ANGLE",
+            var value => value
+        };
+        return driver.Length == 0 ? method : $"{method} · {driver}";
     }
 
     private static void SetBusLevel(string name, int level)
@@ -185,9 +262,11 @@ public partial class GrandPrix
 
     private static RaceSettings ReadRaceSettings(string path)
     {
-        var defaults = new RaceSettings();
+        var defaults = DefaultRaceSettings();
         using var config = new ConfigFile();
         if (!Godot.FileAccess.FileExists(path) || config.Load(path) != Error.Ok) return defaults;
+        var upscaler = (RaceUpscaler)config.GetValue("graphics", "upscaler", (int)defaults.Upscaler).AsInt32();
+        var renderQuality = (RaceRenderQuality)config.GetValue("graphics", "render_quality", (int)defaults.RenderQuality).AsInt32();
         return new RaceSettings(
             config.HasSectionKey("graphics", "fullscreen") ? config.GetValue("graphics", "fullscreen").AsBool() : null,
             Math.Clamp(config.GetValue("graphics", "msaa", defaults.Msaa).AsInt32(), 0, 3),
@@ -198,7 +277,9 @@ public partial class GrandPrix
             config.GetValue("graphics", "free_flight", defaults.FreeFlight).AsBool(),
             Math.Clamp(config.GetValue("audio", "master", defaults.MasterVolume).AsInt32(), 0, 100),
             Math.Clamp(config.GetValue("audio", "music", defaults.MusicVolume).AsInt32(), 0, 100),
-            Math.Clamp(config.GetValue("audio", "effects", defaults.EffectsVolume).AsInt32(), 0, 100));
+            Math.Clamp(config.GetValue("audio", "effects", defaults.EffectsVolume).AsInt32(), 0, 100),
+            Enum.IsDefined(upscaler) ? upscaler : defaults.Upscaler,
+            Enum.IsDefined(renderQuality) ? renderQuality : defaults.RenderQuality);
     }
 
     private static void WriteRaceSettings(string path, RaceSettings settings)
@@ -211,6 +292,8 @@ public partial class GrandPrix
         config.SetValue("graphics", "mph", settings.MilesPerHour);
         config.SetValue("graphics", "music_hud", settings.MusicHud);
         config.SetValue("graphics", "free_flight", settings.FreeFlight);
+        config.SetValue("graphics", "upscaler", (int)settings.Upscaler);
+        config.SetValue("graphics", "render_quality", (int)settings.RenderQuality);
         config.SetValue("audio", "master", settings.MasterVolume);
         config.SetValue("audio", "music", settings.MusicVolume);
         config.SetValue("audio", "effects", settings.EffectsVolume);

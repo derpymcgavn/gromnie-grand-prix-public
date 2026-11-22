@@ -7,12 +7,24 @@ param(
     [Parameter(Mandatory)][string]$JavaHome,
     [Parameter(Mandatory)][string]$Apk,
     [string]$DatFolder = "C:/Turbine/Asheron's Call",
-    [switch]$FullDats
+    [switch]$FullDats,
+    [switch]$ImportDats,
+    [string]$SigningKeystore,
+    [string]$SigningAlias = "gromnie-grand-prix"
 )
 
 $ErrorActionPreference = 'Stop'
 $project = Split-Path $PSScriptRoot
-$DatFolder = (Resolve-Path -LiteralPath $DatFolder).Path
+if ($ImportDats) {
+    if ($FullDats) { throw '-FullDats applies to bundled builds only.' }
+    if (-not $SigningKeystore -or -not $env:GROMNIE_SIGNING_PASSWORD) {
+        throw 'Supply -SigningKeystore and the GROMNIE_SIGNING_PASSWORD environment variable for a public build.'
+    }
+    $SigningKeystore = (Resolve-Path -LiteralPath $SigningKeystore).Path
+}
+else {
+    $DatFolder = (Resolve-Path -LiteralPath $DatFolder).Path
+}
 $Godot = (Resolve-Path -LiteralPath $Godot).Path
 $godotDirectory = Split-Path $Godot
 if (-not (Test-Path -LiteralPath (Join-Path $godotDirectory '_sc_'))) {
@@ -22,8 +34,9 @@ $templates = (Resolve-Path -LiteralPath $TemplateDirectory).Path.Replace('\','/'
 $AndroidSdk = (Resolve-Path -LiteralPath $AndroidSdk).Path.Replace('\','/')
 $JavaHome = (Resolve-Path -LiteralPath $JavaHome).Path.Replace('\','/')
 $work = (New-Item -ItemType Directory -Path $WorkDirectory -Force).FullName
-$stage = Join-Path $work 'stage/GromnieGrandPrix'
-$relay = Join-Path $work 'stage/RaceRelay'
+$stageRoot = Join-Path $work $(if ($ImportDats) { 'stage-import' } else { 'stage' })
+$stage = Join-Path $stageRoot 'GromnieGrandPrix'
+$relay = Join-Path $stageRoot 'RaceRelay'
 $Apk = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Apk)
 $dotnet = (Get-Command dotnet).Source
 $buildTools = Join-Path $AndroidSdk 'build-tools/35.0.1'
@@ -34,7 +47,7 @@ New-Item -ItemType Directory -Force -Path $stage,$relay | Out-Null
 & robocopy $project $stage /E /XD .godot .git Android BundledDats /XF NuGet.Config export_presets.cfg /R:0 /W:0 /NFL /NDL /NJH /NJS /NC /NS /NP
 if ($LASTEXITCODE -ge 8) { throw "Project staging failed ($LASTEXITCODE)." }
 Copy-Item -LiteralPath "$project/../RaceRelay/Wire.cs" -Destination "$relay/Wire.cs"
-@{ sdk = @{ version = $dotnetSdk.Split(' ')[0] } } | ConvertTo-Json -Depth 2 | Set-Content "$work/stage/global.json"
+@{ sdk = @{ version = $dotnetSdk.Split(' ')[0] } } | ConvertTo-Json -Depth 2 | Set-Content "$stageRoot/global.json"
 
 $env:DOTNET_CLI_HOME = Join-Path $work 'dotnet'
 $env:NUGET_PACKAGES = Join-Path $env:DOTNET_CLI_HOME 'packages'
@@ -76,16 +89,22 @@ $config = $config.Replace('[display]', "[display]`nwindow/handheld/orientation=0
 $config += "`n[input_devices]`npointing/emulate_mouse_from_touch=true`n"
 Set-Content -LiteralPath "$stage/project.godot" $config
 
+$packageName = if ($ImportDats) { 'com.gromnie.grandprix' } else { 'com.gromnie.grandprix.privatebuild' }
+$versionCode = if ($ImportDats) { 10 } else { 9 }
+$versionName = if ($ImportDats) { '1.0.9' } else { '1.0.8' }
+$datAssets = if ($ImportDats) { '' } else { ',BundledDats/*.bin,BundledDats/manifest.json' }
+$excludedBundle = if ($ImportDats) { ',BundledDats/*' } else { '' }
+
 @"
 [preset.0]
 
-name="Private Android ARM64"
+name="Android ARM64"
 platform="Android"
 runnable=true
 advanced_options=true
 export_filter="all_resources"
-include_filter="Data/*.json,BundledDats/*.bin,BundledDats/manifest.json,RelayUrl.txt"
-exclude_filter="NuGet.Config,*.ps1,*.cmd,*.csproj,*.sln"
+include_filter="Data/*.json,RelayUrl.txt$datAssets"
+exclude_filter="NuGet.Config,*.ps1,*.cmd,*.csproj,*.sln,*.dat,*.keystore,*.jks$excludedBundle"
 
 [preset.0.options]
 
@@ -96,15 +115,15 @@ architectures/armeabi-v7a=false
 architectures/arm64-v8a=true
 architectures/x86=false
 architectures/x86_64=false
-package/unique_name="com.gromnie.grandprix.privatebuild"
-version/code=2
-version/name="1.0.1"
+package/unique_name="$packageName"
+version/code=$versionCode
+version/name="$versionName"
 package/signed=false
 permissions/internet=true
 dotnet/include_debug_symbols=false
 "@ | Set-Content "$stage/export_presets.cfg"
 
-if (-not $FullDats) {
+if (-not $ImportDats -and -not $FullDats) {
     $packer = Join-Path $work 'stage/DatPacker'
     New-Item -ItemType Directory -Force $packer | Out-Null
     Copy-Item -LiteralPath "$PSScriptRoot/DatPacker/DatPacker.csproj","$PSScriptRoot/DatPacker/Program.cs" -Destination $packer
@@ -118,33 +137,35 @@ if (-not $FullDats) {
     $DatFolder = $compactDats
 }
 
-$bundle = (New-Item -ItemType Directory -Force (Join-Path $stage 'BundledDats')).FullName
-$manifest = [ordered]@{}
-$buffer = [byte[]]::new(16MB)
-foreach ($name in 'client_portal.dat','client_cell_1.dat') {
-    Get-ChildItem -LiteralPath $bundle -Filter "$name.*.bin" -File | Remove-Item
-    $datStream = [IO.File]::OpenRead((Join-Path $DatFolder $name))
-    $hash = [Security.Cryptography.IncrementalHash]::CreateHash([Security.Cryptography.HashAlgorithmName]::SHA256)
-    try {
-        $part = 0
-        while ($datStream.Position -lt $datStream.Length) {
-            $count = [int][Math]::Min($buffer.Length, $datStream.Length - $datStream.Position)
-            $datStream.ReadExactly($buffer, 0, $count)
-            $file = Join-Path $bundle ('{0}.{1:D3}.bin' -f $name,$part)
-            $part++
-            $output = [IO.File]::Create($file)
-            try { $output.Write($buffer, 0, $count) } finally { $output.Dispose() }
-            $hash.AppendData($buffer, 0, $count)
+if (-not $ImportDats) {
+    $bundle = (New-Item -ItemType Directory -Force (Join-Path $stage 'BundledDats')).FullName
+    $manifest = [ordered]@{}
+    $buffer = [byte[]]::new(16MB)
+    foreach ($name in 'client_portal.dat','client_cell_1.dat') {
+        Get-ChildItem -LiteralPath $bundle -Filter "$name.*.bin" -File | Remove-Item
+        $datStream = [IO.File]::OpenRead((Join-Path $DatFolder $name))
+        $hash = [Security.Cryptography.IncrementalHash]::CreateHash([Security.Cryptography.HashAlgorithmName]::SHA256)
+        try {
+            $part = 0
+            while ($datStream.Position -lt $datStream.Length) {
+                $count = [int][Math]::Min($buffer.Length, $datStream.Length - $datStream.Position)
+                $datStream.ReadExactly($buffer, 0, $count)
+                $file = Join-Path $bundle ('{0}.{1:D3}.bin' -f $name,$part)
+                $part++
+                $output = [IO.File]::Create($file)
+                try { $output.Write($buffer, 0, $count) } finally { $output.Dispose() }
+                $hash.AppendData($buffer, 0, $count)
+            }
+            $manifest[$name] = @{ Bytes = $datStream.Length; Sha256 = [Convert]::ToHexString($hash.GetHashAndReset()) }
+            Write-Host "Staged $name ($($datStream.Length) bytes, $part parts)."
         }
-        $manifest[$name] = @{ Bytes = $datStream.Length; Sha256 = [Convert]::ToHexString($hash.GetHashAndReset()) }
-        Write-Host "Staged $name ($($datStream.Length) bytes, $part parts)."
+        finally {
+            $datStream.Dispose()
+            $hash.Dispose()
+        }
     }
-    finally {
-        $datStream.Dispose()
-        $hash.Dispose()
-    }
+    $manifest | ConvertTo-Json | Set-Content "$bundle/manifest.json"
 }
-$manifest | ConvertTo-Json | Set-Content "$bundle/manifest.json"
 
 Push-Location $stage
 try {
@@ -161,7 +182,7 @@ try {
 
     $unsigned = Join-Path $work 'gromnie-unsigned.apk'
     $aligned = Join-Path $work 'gromnie-aligned.apk'
-    & $Godot --headless --export-debug 'Private Android ARM64' $unsigned --log-file "$work/export.log" *> "$work/export-console.log"
+    & $Godot --headless --export-release 'Android ARM64' $unsigned --log-file "$work/export.log" *> "$work/export-console.log"
     # The exporter falls back to its built-in icon and may log an editor teardown diagnostic.
     $exportErrors = Select-String -LiteralPath "$work/export-console.log" -Pattern '^ERROR:' |
         Where-Object { $_.Line -notmatch '^ERROR: (No project icon specified\.|EditorSettings not instantiated yet when getting setting "export/android/(android_sdk_path|shutdown_adb_on_exit)")' }
@@ -170,21 +191,33 @@ try {
     }
     $package = [IO.Compression.ZipFile]::OpenRead($unsigned)
     try {
-        foreach ($entry in 'assets/.godot/mono/publish/arm64/GromnieGrandPrix.dll','assets/BundledDats/manifest.json') {
+        $requiredEntries = @('assets/.godot/mono/publish/arm64/GromnieGrandPrix.dll')
+        if (-not $ImportDats) { $requiredEntries += 'assets/BundledDats/manifest.json' }
+        foreach ($entry in $requiredEntries) {
             if (-not $package.GetEntry($entry)) { throw "Godot omitted $entry from the APK." }
+        }
+        if ($ImportDats -and ($package.Entries.FullName -match '(?i)(^|/)BundledDats/|\.dat$')) {
+            throw 'The public APK unexpectedly contains bundled DAT data.'
         }
     }
     finally { $package.Dispose() }
 
     $key = Join-Path $work 'gromnie-debug.keystore'
-    if (-not (Test-Path -LiteralPath $key)) {
+    $keyPassword = 'pass:android'
+    $keyAlias = 'androiddebugkey'
+    if ($ImportDats) {
+        $key = $SigningKeystore
+        $keyPassword = 'env:GROMNIE_SIGNING_PASSWORD'
+        $keyAlias = $SigningAlias
+    }
+    elseif (-not (Test-Path -LiteralPath $key)) {
         & "$JavaHome/bin/keytool.exe" -genkeypair -keystore $key -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname 'CN=Gromnie Grand Prix Local Debug'
         if ($LASTEXITCODE) { throw 'Could not create the local debug key.' }
     }
     & "$buildTools/zipalign.exe" -f -P 16 4 $unsigned $aligned
     if ($LASTEXITCODE) { throw 'APK alignment failed.' }
     $signed = Join-Path $work 'gromnie-signed.apk'
-    & "$JavaHome/bin/java.exe" -jar "$buildTools/lib/apksigner.jar" sign --ks $key --ks-pass pass:android --ks-key-alias androiddebugkey --v4-signing-enabled false --out $signed $aligned
+    & "$JavaHome/bin/java.exe" -jar "$buildTools/lib/apksigner.jar" sign --ks $key --ks-pass $keyPassword --ks-key-alias $keyAlias --v4-signing-enabled false --out $signed $aligned
     if ($LASTEXITCODE) { throw 'APK signing failed.' }
     & "$JavaHome/bin/java.exe" -jar "$buildTools/lib/apksigner.jar" verify --verbose $signed
     if ($LASTEXITCODE) { throw 'APK signature verification failed.' }

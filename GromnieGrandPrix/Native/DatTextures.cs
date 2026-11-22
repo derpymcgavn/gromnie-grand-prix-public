@@ -13,8 +13,13 @@ public static class DatTextures
         return Decode(bytes,paletteArchive??dat,palette,clipMap,paletteColors,preferEmbeddedPalette);
     }
     public static Texture2D? Decode(byte[] bytes, DatArchive? paletteArchive = null, uint palette = 0, bool clipMap = false, IReadOnlyDictionary<int,uint>? paletteColors = null,bool preferEmbeddedPalette=false)
-        => DecodeImage(bytes, paletteArchive, palette, clipMap, paletteColors, preferEmbeddedPalette) is { } image
-            ? ImageTexture.CreateFromImage(image) : null;
+    {
+        using var image = DecodeImage(bytes, paletteArchive, palette, clipMap, paletteColors, preferEmbeddedPalette);
+        if (image is null) return null;
+        // Decode DXT before uploading on Android, where S3TC support varies by GPU.
+        if (OS.HasFeature("android") && image.IsCompressed() && image.Decompress() != Error.Ok) return null;
+        return ImageTexture.CreateFromImage(image);
+    }
 
     internal static Image? DecodeImage(byte[] bytes, DatArchive? paletteArchive = null, uint palette = 0, bool clipMap = false,
         IReadOnlyDictionary<int, uint>? paletteColors = null, bool preferEmbeddedPalette = false)

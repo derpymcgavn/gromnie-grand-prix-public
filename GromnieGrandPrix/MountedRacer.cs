@@ -54,6 +54,7 @@ public sealed partial class MountedRacer
     private readonly RoadContact[] mountRoadContacts, riderRoadContacts, companionRoadContacts;
     private static readonly ConditionalWeakTable<Mesh, Vector3[]> RoadContactVertices = new();
     private float roadPoseLift;
+    internal bool ReduceRoadContactUpdates { get; set; }
     private readonly record struct RoadContact(MeshInstance3D Instance, Mesh Geometry, Aabb Bounds);
 
     internal MountedRacer(AcAssets assets, RaceMount rig, RareCatalog.Creature gromnie, CharacterLookDefinition look,
@@ -483,11 +484,17 @@ public sealed partial class MountedRacer
             roadPoseLift = 0;
             return;
         }
+        // This lift only offsets the rendered rig. Rival movement and collision use the course position.
+        if (ReduceRoadContactUpdates && dt > 0 && (Engine.GetPhysicsFrames() & 1) != 0)
+        {
+            Root.Position += Vector3.Up * roadPoseLift;
+            return;
+        }
         float lift = PowerForm is { } form ? RoadMeshLift(track, form.BodyMeshes) : RoadMeshLift(track, mountRoadContacts);
         if (PowerForm is null)
             lift = Math.Max(lift, RoadMeshLift(track, companionRoadContacts));
         if (!Rider.TopLevel) lift = Math.Max(lift, RoadMeshLift(track, riderRoadContacts));
-        roadPoseLift = Math.Max(lift, dt == 0 ? 0 : roadPoseLift - dt * 5.5f);
+        roadPoseLift = Math.Max(lift, dt == 0 ? 0 : roadPoseLift - dt * (ReduceRoadContactUpdates ? 11f : 5.5f));
         Root.Position += Vector3.Up * roadPoseLift;
     }
 

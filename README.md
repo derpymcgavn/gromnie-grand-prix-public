@@ -28,7 +28,7 @@ Use the [Windows installer recipe](deploy/windows/README.md) to package the expo
 
 ## Android
 
-Download the APK from the [Android v1.0.10 release](https://github.com/derpymcgavn/gromnie-grand-prix-public/releases/tag/v1.0.10). The Android ARM64 build imports both DAT files from a folder selected in Android's file picker. See the [Android build and setup instructions](GromnieGrandPrix/Android/README.md).
+Download the APK from the [Android v1.0.11 release](https://github.com/derpymcgavn/gromnie-grand-prix-public/releases/tag/v1.0.11). The Android ARM64 build imports both DAT files from a folder selected in Android's file picker. See the [Android build and setup instructions](GromnieGrandPrix/Android/README.md).
 
 ## Verify a local build
 

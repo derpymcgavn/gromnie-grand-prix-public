@@ -90,8 +90,8 @@ $config += "`n[input_devices]`npointing/emulate_mouse_from_touch=true`n"
 Set-Content -LiteralPath "$stage/project.godot" $config
 
 $packageName = if ($ImportDats) { 'com.gromnie.grandprix' } else { 'com.gromnie.grandprix.privatebuild' }
-$versionCode = if ($ImportDats) { 11 } else { 9 }
-$versionName = if ($ImportDats) { '1.0.10' } else { '1.0.8' }
+$versionCode = if ($ImportDats) { 12 } else { 9 }
+$versionName = if ($ImportDats) { '1.0.11' } else { '1.0.8' }
 $datAssets = if ($ImportDats) { '' } else { ',BundledDats/*.bin,BundledDats/manifest.json' }
 $excludedBundle = if ($ImportDats) { ',BundledDats/*' } else { '' }
 

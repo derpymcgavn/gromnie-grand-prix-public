@@ -23,6 +23,10 @@ Run [Build.ps1](Build.ps1) with `-ImportDats` to build an APK that reads each pl
 
 The release package ID is `com.gromnie.grandprix`. It installs alongside older private test builds.
 
+## Update an existing GitHub installation
+
+Keep the game installed. Open the newly downloaded APK from **Files → Downloads** and select **Update** in Android's installer. The update keeps your saves, settings, and imported DATs. If Android reports that the APK's content digest failed to verify, download a fresh copy from the GitHub release page and open that file directly.
+
 ## Racing controls
 
 Push the joystick up to accelerate, down to brake, and sideways to steer. Hold **Drift** while steering to charge a boost. In Free Flight, the joystick banks left or right, dives when pushed up, and climbs when pulled down.

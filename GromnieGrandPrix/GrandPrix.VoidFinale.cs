@@ -86,8 +86,8 @@ public partial class GrandPrix
         camera.Projection = Camera3D.ProjectionType.Perspective;
         camera.Near = .1f;
         camera.Far = 2900;
-        camera.Fov = Mathf.Lerp(51, 41, approach);
-        camera.Position = outward * Mathf.Lerp(267, 151, approach) + Vector3.Up * Mathf.Lerp(193, 108, approach);
+        camera.Fov = Mathf.Lerp(51, 38, approach);
+        camera.Position = outward * Mathf.Lerp(267, 123, approach) + Vector3.Up * Mathf.Lerp(193, 107, approach);
         camera.LookAt((Vector3.Up * 112).Lerp(VoidFinaleShardFocus, approach));
     }
 }

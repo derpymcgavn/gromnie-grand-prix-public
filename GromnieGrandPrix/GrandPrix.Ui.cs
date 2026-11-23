@@ -258,7 +258,8 @@ public partial class GrandPrix
             courseList.SetItemMetadata(index, id);
             if (id == selectedTown) courseList.Select(index);
         }
-        add(VoidCourseId, VoidCourseName + "     ·     XL");
+        foreach (var (id, layout) in VoidCourses)
+            add(id, layout.Name + "     ·     VOID");
         if (spanSprint is { } sprint) add(sprint.Id, sprint.Name + "   ·   Obsidian Span");
         foreach (var custom in customTracks.Values.OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase))
             add(custom.Id, custom.Name + "     ·     CUSTOM");
@@ -532,7 +533,7 @@ public partial class GrandPrix
         bestLabel.Text = best >= 0 ? $"PERSONAL BEST   {FormatTime(best)}" : "PERSONAL BEST   —";
         courseButton.Text = $"COURSE   ·   {SelectedCourseName}";
         courseStatus.Text = courseProblem.Length > 0 ? courseProblem
-            : selectedTown == VoidCourseId ? "5 laps  /  23.1 km total  /  Singularity flyover"
+            : VoidCourses.TryGetValue(selectedTown, out var voidCourse) ? $"5 laps  /  {voidCourse.Details}"
             : CustomCourse(selectedTown) is { } custom ? $"Custom circuit  /  {custom.GridSide} × {custom.GridSide}  /  {custom.Width:0} m wide"
             : spanSprint?.Id == selectedTown ? "Point-to-point  /  Obsidian Span  /  Cragstone finish"
             : ridgeCircuits.ContainsKey(selectedTown) ? "1 lap  /  8 × 8 landblocks  /  summit flight"

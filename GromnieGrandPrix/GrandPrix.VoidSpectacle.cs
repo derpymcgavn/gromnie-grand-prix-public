@@ -57,7 +57,7 @@ public partial class GrandPrix
         {
             var paint = new ShaderMaterial { Shader = shader, RenderPriority = priority };
             paint.SetShaderParameter("backdrop", GD.Load<Texture2D>($"res://Data/Void/{texture}.png"));
-            AddMesh(name, BuildVoidBackdrop(size, outline, tilt), paint, position);
+            AddMesh(name, BuildVoidBackdrop(size, outline, tilt), paint, position).Layers |= VoidReflectionSceneryLayer;
         }
 
         void AddGalaxy(string name, string texture, Vector3 position, Vector2 size, float tilt, float phase,
@@ -69,7 +69,7 @@ public partial class GrandPrix
             paint.SetShaderParameter("drift", drift);
             paint.SetShaderParameter("strength", strength);
             voidGalaxyMaterials.Add(paint);
-            AddMesh(name, BuildVoidBackdrop(size, Vector2.One * .99f, tilt), paint, position);
+            AddMesh(name, BuildVoidBackdrop(size, Vector2.One * .99f, tilt), paint, position).Layers |= VoidReflectionSceneryLayer;
         }
 
         void AddFilament(string name, float heading, float sweep, float radius, float altitude, float width, string color)
@@ -80,7 +80,7 @@ public partial class GrandPrix
             AddMesh(name, BuildVoidDistantArc(heading, sweep, radius, altitude, width), paint, Vector3.Zero);
         }
 
-        void AddMesh(string name, Mesh mesh, Material paint, Vector3 position)
+        MeshInstance3D AddMesh(string name, Mesh mesh, Material paint, Vector3 position)
         {
             var node = new MeshInstance3D
             {
@@ -88,6 +88,7 @@ public partial class GrandPrix
                 CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
             };
             sky.AddChild(node);
+            return node;
         }
     }
 

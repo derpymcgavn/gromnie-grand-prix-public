@@ -5,6 +5,7 @@ public partial class GrandPrix
     private const float VoidVolleyPeriod = 15.6f;
     private const float VoidWarningAt = .30f, VoidFireAt = 2.74f, VoidImpactAt = 3.49f, VoidClearAt = 4.98f;
     private const float VoidPrisonHitAt = VoidImpactAt + .41f;
+    private const float VoidSiteSpacing = 58, VoidShockwaveHalfLength = 22;
 
     private enum VoidSpell { CrimsonBlast, BindingLight, BaelShockwave }
 
@@ -40,6 +41,7 @@ public partial class GrandPrix
     private readonly record struct VoidHullEdge(Vector2 Inward, float Offset);
     private readonly record struct VoidStrikeTriangle(VoidHullEdge A, VoidHullEdge B, VoidHullEdge C,
         Vector3 Height, float Deck);
+    private readonly record struct VoidStrikeStation(float Station, float Side, Vector3 Impact);
 
     private sealed class VoidStrikeSite(float station, float lane, float halfLane, Vector3 impact,
         float arrivalDelay, Basis deckBasis, VoidStrikeTriangle[] hitTriangles, float reachSquared,
@@ -80,7 +82,7 @@ public partial class GrandPrix
     }
     private VoidBattleScene? voidBattle;
 
-    private void BuildVoidBattle(Node3D root, BogCircuit circuit)
+    private void BuildVoidBattle(Node3D root, BogCircuit circuit, bool alternateLayout)
     {
         var stage = new Node3D { Name = "Battle for the prison" };
         root.AddChild(stage);
@@ -91,6 +93,7 @@ public partial class GrandPrix
         var halo = new TorusMesh { InnerRadius = .84f, OuterRadius = 1, Rings = 48, RingSegments = 5 };
         var prison = Vector3.Up * (52 * VoidPrisonScale);
         var claimedStations = new List<float>();
+        var alternateSites = alternateLayout ? PlanAlternateVoidStrikes(circuit) : null;
         voidBattle = new VoidBattleScene(stage,
         [
             new(VoidSpell.CrimsonBlast, VoidAerbaxOrigin(VoidAerbaxPosition), prison,
@@ -103,6 +106,10 @@ public partial class GrandPrix
 
         VoidStrikeSite[] BuildSites(VoidSpell spell, Vector3 facing, params float[] bearings)
         {
+            if (alternateSites is not null)
+                return alternateSites[(int)spell].Select((site, i) =>
+                    BuildSite(spell, site.Station, site.Side, i * .19f + i / 2 * .07f)).ToArray();
+
             var sites = new List<VoidStrikeSite>();
             for (int ray = 0; ray < bearings.Length; ray++)
             {
@@ -112,11 +119,10 @@ public partial class GrandPrix
                 for (int pass = 0; pass < crossings.Length; pass++)
                 {
                     float station = crossings[pass];
-                    if (claimedStations.Any(claimed => Math.Min(Math.Abs(claimed - station),
-                            circuit.Length - Math.Abs(claimed - station)) < 58)) continue;
+                    if (claimedStations.Any(claimed => VoidStationGap(circuit.Length, claimed, station) < VoidSiteSpacing)) continue;
                     // The near deck catches the first blast. Its fallout then reaches the other level.
                     float delay = pass * .48f + Math.Min(ray, 2) * .23f;
-                    sites.Add(BuildSite(spell, station, bearing, ray, pass, delay));
+                    sites.Add(BuildSite(spell, station, VoidStrikeSide(circuit, spell, station, bearing, ray + pass), delay));
                     claimedStations.Add(station);
                 }
             }
@@ -124,14 +130,12 @@ public partial class GrandPrix
             return sites.ToArray();
         }
 
-        VoidStrikeSite BuildSite(VoidSpell spell, float station, Vector3 bearing, int ray, int pass, float delay)
+        VoidStrikeSite BuildSite(VoidSpell spell, float station, float side, float delay)
         {
             float width = circuit.WidthAt(station);
-            float side = circuit.Right(station).Dot(bearing) < 0 ? -1 : 1;
-            if ((ray + pass) % 2 != 0 || spell == VoidSpell.BaelShockwave) side = -side;
-            float lane = width * (spell == VoidSpell.BindingLight ? .2f : .43f) * side;
+            float lane = VoidStrikeLane(spell, width, side);
             float halfLane = width * (spell == VoidSpell.BindingLight ? .46f : .44f);
-            float halfLength = spell == VoidSpell.BaelShockwave ? 22 : 17;
+            float halfLength = spell == VoidSpell.BaelShockwave ? VoidShockwaveHalfLength : 17;
             var tint = VoidSpellLooks[(int)spell].Tint;
             Vector3 impact = circuit.Surface(station, lane);
             Vector3 forward = (circuit.Surface(station + 2, lane) - circuit.Surface(station - 2, lane)).Normalized();
@@ -168,6 +172,87 @@ public partial class GrandPrix
             Transparency = BaseMaterial3D.TransparencyEnum.Alpha, BlendMode = BaseMaterial3D.BlendModeEnum.Add,
             CullMode = BaseMaterial3D.CullModeEnum.Disabled
         };
+    }
+
+    private static List<VoidStrikeStation>[] PlanAlternateVoidStrikes(BogCircuit circuit)
+    {
+        const int sitesPerSpell = 6;
+        const float startClearance = 70;
+        float length = circuit.Length;
+        var flight = VoidFlyover(circuit);
+        float flightApproach = flight.Start - 30 - VoidShockwaveHalfLength;
+        float flightExit = flight.End + 40 + VoidShockwaveHalfLength;
+        int sampleCount = Mathf.CeilToInt(length / 8);
+        var candidates = new List<(float Station, Vector3 Center)>(sampleCount);
+        for (int i = 0; i < sampleCount; i++)
+        {
+            float at = (i + .5f) / sampleCount * length;
+            if (at < startClearance + VoidShockwaveHalfLength || at > length - VoidShockwaveHalfLength ||
+                at >= flightApproach && at <= flightExit) continue;
+            candidates.Add((at, circuit.Point(at)));
+        }
+
+        List<VoidStrikeStation>[] sites = [new(sitesPerSpell), new(sitesPerSpell), new(sitesPerSpell)];
+        var claimed = new List<VoidStrikeStation>(sites.Length * sitesPerSpell);
+        for (int slot = 0; slot < sitesPerSpell; slot++)
+        for (int offset = 0; offset < sites.Length; offset++)
+        {
+            int index = (slot + offset) % sites.Length;
+            var spell = (VoidSpell)index;
+            Vector3 caster = VoidStrikeCaster(spell);
+            var own = sites[index];
+            VoidStrikeStation? best = null;
+            float bestScore = float.NegativeInfinity;
+            foreach (var candidate in candidates)
+            {
+                Vector3 fromCaster = candidate.Center - caster;
+                float side = own.Count == 0
+                    ? VoidStrikeSide(circuit, spell, candidate.Station, fromCaster with { Y = 0 }, 0)
+                    : own[0].Side * (own.Count % 2 == 0 ? 1 : -1);
+                float lane = VoidStrikeLane(spell, circuit.WidthAt(candidate.Station), side);
+                Vector3 impact = circuit.Surface(candidate.Station, lane);
+                if (claimed.Any(site => VoidStationGap(length, site.Station, candidate.Station) < VoidSiteSpacing ||
+                    site.Impact.DistanceSquaredTo(impact) < VoidSiteSpacing * VoidSiteSpacing)) continue;
+
+                float casterDistance = fromCaster.Length();
+                float spread = own.Count == 0 ? 0 : own.Min(site => VoidStationGap(length, site.Station, candidate.Station));
+                // Early volleys favor the caster's territory. Later volleys reach across the circuit.
+                float score = slot < 2 ? Math.Min(spread, 180) * .65f - casterDistance : spread - casterDistance * .15f;
+                if (score <= bestScore) continue;
+                best = new VoidStrikeStation(candidate.Station, side, impact);
+                bestScore = score;
+            }
+            if (best is not { } chosen) continue;
+            own.Add(chosen);
+            claimed.Add(chosen);
+        }
+
+        for (int i = 0; i < sites.Length; i++)
+            if (sites[i].Count < 5)
+                throw new InvalidDataException($"The arena road has fewer than five safe {(VoidSpell)i} strike sites.");
+        return sites;
+    }
+
+    private static float VoidStrikeSide(BogCircuit circuit, VoidSpell spell, float station, Vector3 bearing, int index)
+    {
+        float side = circuit.Right(station).Dot(bearing) < 0 ? -1 : 1;
+        return index % 2 != 0 || spell == VoidSpell.BaelShockwave ? -side : side;
+    }
+
+    private static float VoidStrikeLane(VoidSpell spell, float width, float side) =>
+        width * (spell == VoidSpell.BindingLight ? .2f : .43f) * side;
+
+    private static Vector3 VoidStrikeCaster(VoidSpell spell) => spell switch
+    {
+        VoidSpell.CrimsonBlast => VoidAerbaxPosition,
+        VoidSpell.BindingLight => VoidAsheronPosition,
+        _ => Vector3.Zero
+    };
+
+    private static float VoidStationGap(float length, float first, float second)
+    {
+        float gap = Math.Abs(first - second);
+        return Math.Min(gap, length - gap);
     }
 
     private static float[] FindVoidStrikeStations(BogCircuit circuit, Vector3 bearing)

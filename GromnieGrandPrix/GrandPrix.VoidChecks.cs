@@ -3,11 +3,11 @@ using DerethSurvivors;
 
 public partial class GrandPrix
 {
-    private void StartVoidCheck()
+    private void StartVoidCheck(int id = VoidCourseId)
     {
-        ChooseCourse(VoidCourseId);
+        ChooseCourse(id);
         StartRace();
-        Require(racing && activeTown == VoidCourseId && track.IsVoid && weatherEnvironment.Sky == voidSky,
+        Require(racing && activeTown == id && track.IsVoid && weatherEnvironment.Sky == voidSky,
             $"the dark circuit launches from the course picker ({courseProblem})");
     }
 
@@ -35,8 +35,12 @@ public partial class GrandPrix
             "a giant Bael’Zharon, his singularity and Asheron’s bindings occupy the middle of the race scene");
         var chains = course.GetNode<Node3D>("The Summoning/Asheron’s binding chains");
         var shard = course.GetNode<Node3D>("The Summoning/Shard of the Herald");
+        var captive = shard.GetNode<AcActor>("Trapped Bael’Zharon/Native Bael’Zharon");
         Require(!chains.Visible && !shard.Visible && shard.GetNode<AcActor>("Native crystal").NativeAppearanceId == 8542,
             "the finale starts hidden and uses the original Shard of the Herald appearance");
+        Require(!captive.IsVisibleInTree() && captive.NativeAppearanceId == 8503 &&
+                shard.HasNode("Splintered facets") && !shard.GetNode<Node3D>("Crimson flame smoke").IsVisibleInTree(),
+            "the shard has jagged glass and hides the captured native Bael and smoke before sealing");
         var route = track.Curve.GetBakedPoints();
         Require(route.All(p => new Vector2(p.X, p.Z).Length() > 145), "both orbits keep clear of Bael’Zharon’s prison");
         Require(route.Max(p => p.Y) - route.Min(p => p.Y) > 115, "the circuit climbs and drops through more than 115 m of elevation");
@@ -70,16 +74,58 @@ public partial class GrandPrix
             voidSealAt == racers.Where(racer => racer.Finish >= 0).Min(racer => racer.Finish),
             "every lap split uses the checkpoint clock and the first finisher starts the seal");
         if (voidFinaleCamera) TickVoidFinale(VoidFinaleDuration);
-        Require(!caster.Visible && !chains.Visible && shard.Visible && resultsUi.Visible,
+        Require(!caster.Visible && !chains.Visible && shard.Visible && captive.IsVisibleInTree() &&
+                shard.GetNode<Node3D>("Crimson flame smoke").IsVisibleInTree() && resultsUi.Visible,
             "Bael is sealed inside the native shard before results appear");
         int lapCount = track.Laps;
         float length = track.Length;
         StartVoidCheck();
-        Require(caster.Visible && !shard.Visible && !chains.Visible && voidSealAt < 0 &&
+        Require(caster.Visible && !shard.Visible && !chains.Visible && !captive.IsVisibleInTree() && voidSealAt < 0 &&
             racers.All(racer => racer.LapCrossings.Count == 0), "starting another race resets the seal and lap times");
         OpenStable();
         Require(weatherEnvironment.Sky == originalSky && !racing, "leaving the special course restores the normal sky");
         GD.Print($"RYNTHID SINGULARITY PASS | {lapCount} laps, {length * lapCount:N0} m, overpass, flyover, edge recovery, and the native Shard of the Herald finale.");
+        CheckVoidLayouts();
+    }
+
+    private void CheckVoidLayouts()
+    {
+        foreach (int id in new[] { VoidFootworkCourseId, VoidAerbaxCourseId })
+        {
+            string name = CourseName(id);
+            PopulateCoursePicker(name);
+            Require(courseList.ItemCount == 1 && courseList.GetItemMetadata(0).AsInt32() == id,
+                $"the picker finds {name} by its own name and ID");
+            StartVoidCheck(id);
+            var points = track.Curve.GetBakedPoints();
+            bool footwork = id == VoidFootworkCourseId;
+            var boss = footwork ? Vector3.Zero : VoidAerbaxPosition;
+            float nearest = points.Min(p => new Vector2(p.X - boss.X, p.Z - boss.Z).Length());
+            float radius = track.TightestInsideRadius();
+            Require(track.Length > 2300 && track.Laps == 5 && radius >= BogCircuit.MinimumInsideRadius,
+                $"{name} is a wide, sweeping five-lap circuit ({track.Length:F0} m, {radius:F1} m inside radius)");
+            Require(nearest > (footwork ? 65 : 95) && nearest < (footwork ? 105 : 150),
+                $"{name} passes close to its featured boss clear of the stage ({nearest:F1} m)");
+            Require(footwork ? points.Any(p => p.Y < 29 && new Vector2(p.X, p.Z).Length() < 100)
+                : points.All(p => new Vector2(p.X, p.Z).Length() > 130), $"{name} clears Bael’Zharon’s body");
+            Require(points[0].DistanceTo(points[^1]) < .05f && track.Surface(0, track.HalfWidth).IsEqualApprox(track.Surface(track.Length, track.HalfWidth)),
+                $"{name} joins continuously across the center and shoulder of the loop");
+            Require(flyover is { } route && track.Gate(1) < route.Start && track.Gate(2) > route.End,
+                $"{name} keeps its flyover between two checkpoints");
+            Require(voidBattle!.Attacks.All(attack => attack.Sites.Length >= 5), $"{name} has strike sites for all three casters");
+
+            countdown = 0;
+            for (int frame = 0; frame < 24000 && Player.LapCrossings.Count == 0; frame++)
+            {
+                bool sudsed = IsSudsed(Player);
+                float steer = Mathf.Clamp((6.2f - Player.Lane) * (sudsed ? -.42f : .42f), -1, 1);
+                TickRace(1f / 60, !sudsed, sudsed, steer, false, false);
+            }
+            Require(Player.LapCrossings.Count >= 1 && Player.GatesCleared >= track.GateCount + 1,
+                $"{name} completes a timed lap through all checkpoints (station {Player.Distance:F1}, gates {Player.GatesCleared})");
+            GD.Print($"VOID LAYOUT PASS | {name} · {track.Length:F0} m/lap · {nearest:F0} m boss pass · {radius:F0} m inside radius · timed lap.");
+            OpenStable();
+        }
     }
 
     private void CheckVoidFlyoverAndDrop(Vector3 highDeck, Vector3 lowDeck)
@@ -124,6 +170,11 @@ public partial class GrandPrix
 
     private async Task CaptureVoidCourse(string folder, bool video)
     {
+        if (OS.GetCmdlineUserArgs().Contains("--void-layouts"))
+        {
+            await CaptureVoidLayouts(folder);
+            return;
+        }
         StartVoidCheck();
         SetPhysicsProcess(false);
         countdown = 0;
@@ -168,6 +219,15 @@ public partial class GrandPrix
             PreviewBattle(stageSpan + VoidImpactAt + .38f);
             PoseFlyover(.43f);
             await SaveFrame(Path.Combine(folder, "Rynthid-Flyover.png"));
+            var crystalBatches = course.GetNode<Node3D>("Rynthid energy track").GetChildren()
+                .OfType<MultiMeshInstance3D>().Where(batch => batch.Name.ToString().StartsWith("Floating prisms ", StringComparison.Ordinal));
+            var crystal = crystalBatches.SelectMany(batch => Enumerable.Range(0, batch.Multimesh.InstanceCount)
+                .Select(i => batch.GlobalTransform * batch.Multimesh.GetInstanceTransform(i)))
+                .OrderByDescending(instance => instance.Basis.Y.LengthSquared()).First();
+            Vector3 crystalTarget = crystal.Origin + Vector3.Up * 4;
+            Vector3 outside = new Vector3(crystalTarget.X, 0, crystalTarget.Z).Normalized();
+            StageCamera(crystalTarget + outside * 84 + outside.Cross(Vector3.Up) * 22 + Vector3.Up * 11, crystalTarget, 49);
+            await SaveFrame(Path.Combine(folder, "Rynthid-Amethyst.png"));
         }
 
         ResetRace();
@@ -261,6 +321,38 @@ public partial class GrandPrix
             StageCamera(point + outward * 27 - flight.Heading * 8 + Vector3.Up * 9,
                 point - outward * 9 + flight.Heading * 2, 65);
         }
+    }
+
+    private async Task CaptureVoidLayouts(string folder)
+    {
+        foreach (int id in new[] { VoidFootworkCourseId, VoidAerbaxCourseId })
+        {
+            StartVoidCheck(id);
+            SetPhysicsProcess(false);
+            raceUi.Hide();
+            ClearSpeedBlur();
+            countdown = 0;
+            bool footwork = id == VoidFootworkCourseId;
+            var boss = footwork ? Vector3.Zero : VoidAerbaxPosition;
+            Vector3 courseFocus = footwork ? new Vector3(-18, 18, 81) : boss + new Vector3(-32, 4, 125);
+            Player.Distance = track.Project(courseFocus, track.Length * .42f).Distance;
+            Player.Draw(track, .12f, true);
+            Vector3 spot = track.Point(Player.Distance);
+            Vector3 outward = (spot - boss) with { Y = 0 };
+            camera.Far = 2900;
+            camera.Fov = footwork ? 67 : 64;
+            camera.Position = spot - track.Forward(Player.Distance) * 26 + outward.Normalized() * 28 + Vector3.Up * 15;
+            camera.LookAt(spot.Lerp(boss, .65f) + Vector3.Up * (footwork ? 32 : 28));
+            elapsed = VoidFireAt - .16f;
+            SetVoidGalaxyProgress(.65f);
+            TickVoidSetpiece(1f / 30);
+            TickVoidBattle(0);
+            // Cached reflections need time to capture and filter after switching layouts.
+            for (int frame = 0; frame < 24; frame++)
+                await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+            await SaveFrame(Path.Combine(folder, footwork ? "Bael-Footwork.png" : "Aerbax-Orbit.png"));
+        }
+        GD.Print("VOID LAYOUT CAPTURE PASS");
     }
 
     private void PreviewVoidFinale()

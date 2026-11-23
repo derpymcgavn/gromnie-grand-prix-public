@@ -1,5 +1,5 @@
 shader_type spatial;
-render_mode cull_disabled, specular_disabled, diffuse_lambert;
+render_mode cull_disabled, specular_schlick_ggx, diffuse_lambert;
 #include "res://Shaders/SurfaceRelief.gdshaderinc"
 #include "res://Shaders/TrackWater.gdshaderinc"
 
@@ -77,13 +77,17 @@ void fragment() {
         base *= 1.0 - cloud_shadow_strength * cloud;
     }
     vec3 reflected;
+    float film;
+    float pool;
+    vec3 pool_normal;
     vec4 course = texture(course_mask, (world_point.xz - course_origin) / course_extent);
-    track_water(world_point.xz, verge_cover, course.a, normalize(world_normal),
-        normalize(mat3(INV_VIEW_MATRIX) * VIEW), TIME, base, reflected);
+    track_water_surface(world_point.xz, verge_cover, course.a, normalize(world_normal),
+        normalize(mat3(INV_VIEW_MATRIX) * VIEW), TIME, base, reflected, film, pool, pool_normal);
     ALBEDO = base;
     EMISSION = reflected;
     ALPHA = smoothstep(.08, .95, verge_cover);
     ALPHA_SCISSOR_THRESHOLD = road_detail ? mix(.14, .86, gravel_patch(world_point.xz * 5.5)) : .45;
-    ROUGHNESS = .98;
-    SPECULAR = 0.0;
+    ROUGHNESS = mix(mix(.98, .46, film), .065, pool);
+    SPECULAR = .36 * pool;
+    if (pool > .005) NORMAL = normalize(mix(NORMAL, mat3(VIEW_MATRIX) * pool_normal, pool));
 }

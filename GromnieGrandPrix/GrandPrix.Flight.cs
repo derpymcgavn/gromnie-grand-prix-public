@@ -33,7 +33,7 @@ public partial class GrandPrix
         {
             YanshiXlCourseId => new Flyover("YANSHI FLYOVER", 74, 385, 62, -77),
             XlCourseOffset + 72 => new Flyover("RIVER BLUFF FLYOVER", 108, 376, 57, -86),
-            VoidCourseId => VoidFlyover(track),
+            _ when track.IsVoid => VoidFlyover(track),
             _ => null
         };
         if (ridgeCircuits.TryGetValue(activeTown, out var ridge))

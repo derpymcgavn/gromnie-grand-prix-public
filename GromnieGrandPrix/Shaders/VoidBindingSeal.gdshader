@@ -51,6 +51,11 @@ void fragment() {
     float halo = line_glow(r - .68, .064) * .34;
     float wave_radius = .68 + .31 * (1.0 - pulse);
     float burst = line_glow(radius - wave_radius, .035) * pulse;
+    // Keep the engraving visible after the flash while clearing the prison window.
+    float core = mix(1.0, .018, smoothstep(4.80, 5.32, age));
+    bloom *= core;
+    spark *= core;
+    rays *= core;
 
     vec3 gold = vec3(1.0, .62, .20);
     vec3 pale = vec3(1.0, .91, .65);

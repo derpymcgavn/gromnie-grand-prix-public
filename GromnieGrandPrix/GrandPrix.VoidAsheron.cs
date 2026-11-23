@@ -4,6 +4,7 @@ using DerethSurvivors;
 public partial class GrandPrix
 {
     private const uint VoidAsheronLightLayer = 1u << 14;
+    private const uint VoidGuardianDiamondLayer = 1u << 17;
     private const uint GuardianGreatsword = 0x020016d4, VoidGuardianSwordStyle = 0x8000003e;
     private const float VoidGuardianHeightRatio = 3.5f, VoidGuardianSwordRatio = .55f;
     private const float VoidAsheronSealAdvance = 15f, VoidAsheronSealHeight = 34f;
@@ -58,6 +59,7 @@ public partial class GrandPrix
         var guardians = new AcActor[2];
         var blades = new VoidGuardianBlade[guardians.Length];
         var emberMesh = BuildVoidGuardianEmber();
+        var diamond = new ShaderMaterial { Shader = GD.Load<Shader>("res://Shaders/VoidGuardianDiamond.gdshader") };
         for (int i = 0; i < guardians.Length; i++)
         {
             float side = i == 0 ? -1 : 1;
@@ -73,7 +75,11 @@ public partial class GrandPrix
             guardian.Scale = Vector3.One * scale;
             guardian.Position = at + Vector3.Up * (.31f - body.Position.Y * scale);
             guardian.Hold(GuardianGreatsword, 1, scale: body.Size.Y * VoidGuardianSwordRatio / VoidGuardianSwordLength);
-            Illuminate(guardian);
+            foreach (var mesh in guardian.BodyMeshes)
+            {
+                mesh.Layers = VoidGuardianDiamondLayer;
+                mesh.MaterialOverride = diamond;
+            }
             int grip = guardian.Setup.Holdings[1].Part;
             var greatsword = guardian.Part(grip).GetChildren().OfType<AcActor>().First();
             greatsword.Name = "Greatsword of Flame and Light";
@@ -85,6 +91,7 @@ public partial class GrandPrix
         var seal = new ShaderMaterial { Shader = GD.Load<Shader>("res://Shaders/VoidBindingSeal.gdshader"), RenderPriority = 3 };
         var glyph = BogCircuit.MeshAt(stage, new QuadMesh { Size = new Vector2(41, 41) }, VoidBindingSealCenter, Vector3.One, seal);
         glyph.Name = "Binding seal";
+        glyph.Layers |= VoidReflectionSceneryLayer;
         glyph.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
 
         var flowMesh = BuildVoidAsheronChannel();
@@ -152,7 +159,8 @@ public partial class GrandPrix
             var light = new OmniLight3D
             {
                 Name = name, Position = at, LightColor = new Color(color), LightEnergy = strength,
-                OmniRange = range * VoidSideStageScale, OmniAttenuation = 1.28f, LightCullMask = VoidAsheronLightLayer
+                OmniRange = range * VoidSideStageScale, OmniAttenuation = 1.28f,
+                LightCullMask = VoidAsheronLightLayer | VoidGuardianDiamondLayer
             };
             stage.AddChild(light);
             return light;

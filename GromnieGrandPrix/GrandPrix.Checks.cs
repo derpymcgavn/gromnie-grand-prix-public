@@ -144,7 +144,7 @@ public partial class GrandPrix
             Require(townDestinations.Count == 50 && mediumRoutes.Count == 45, "all outdoor town courses have regional layouts");
             PopulateCoursePicker("");
             var picked = Enumerable.Range(0, courseList.ItemCount).Select(i => courseList.GetItemMetadata(i).AsInt32()).ToArray();
-            Require(spanSprint is not null && picked.Length == 60 && picked.Contains(spanSprint.Id) && picked.Contains(VoidCourseId) &&
+            Require(spanSprint is not null && picked.Length == 59 + VoidCourses.Count && picked.Contains(spanSprint.Id) && VoidCourses.Keys.All(picked.Contains) &&
                 landmarkCircuits.Keys.All(picked.Contains) && !picked.Contains(0) && !picked.Contains(72),
                 "the Span sprint and the full regional catalog appear in the picker");
                         Require(track.Length > 600 && track.Point(0).DistanceTo(track.Point(track.Length - .01f)) < .1f

@@ -32,7 +32,7 @@ public partial class GrandPrix
     private sealed class VoidSummoning(Node3D root, AcActor caster, MeshInstance3D hole,
         ShaderMaterial horizon, Node3D streamRoot, ShaderMaterial[] streams, OmniLight3D coronaLight,
         MultiMeshInstance3D debris, VoidDebris[] orbits, MultiMeshInstance3D bindings,
-        Node3D shard, ShaderMaterial seal)
+        VoidHerald herald)
     {
         internal readonly Node3D Root = root;
         internal readonly AcActor Caster = caster;
@@ -44,8 +44,8 @@ public partial class GrandPrix
         internal readonly MultiMeshInstance3D Debris = debris;
         internal readonly VoidDebris[] Orbits = orbits;
         internal readonly MultiMeshInstance3D Bindings = bindings;
-        internal readonly Node3D Shard = shard;
-        internal readonly ShaderMaterial Seal = seal;
+        internal readonly VoidHerald Herald = herald;
+        internal Node3D Shard => Herald.Root;
         internal readonly Vector3 CasterRotation = caster.Rotation;
         internal float Age, PoseAge, NextCast = 3.8f, ClashPulse, FinaleAge = -1;
     }
@@ -94,6 +94,7 @@ public partial class GrandPrix
         };
         var hole = BogCircuit.MeshAt(stage, new QuadMesh { Size = new Vector2(166, 166) }, VoidHorizonRest, Vector3.One, horizon);
         hole.Name = "Event Horizon";
+        hole.Layers |= VoidReflectionSceneryLayer;
         hole.ExtraCullMargin = 84;
         hole.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
 
@@ -138,8 +139,8 @@ public partial class GrandPrix
             random.RandfRange(30, 59), random.RandfRange(20, 73), random.RandfRange(.19f, .43f),
             new Vector3(random.RandfRange(.8f, 2.1f), random.RandfRange(1.1f, 3.1f), random.RandfRange(.5f, 1.5f)))).ToArray();
         var bindings = BuildVoidRestraints(stage);
-        var (shard, seal) = BuildVoidShard(stage);
-        voidSummoning = new VoidSummoning(stage, caster, hole, horizon, streamRoot, streams, key, debris, orbits, bindings, shard, seal);
+        var herald = BuildVoidShard(stage, look);
+        voidSummoning = new VoidSummoning(stage, caster, hole, horizon, streamRoot, streams, key, debris, orbits, bindings, herald);
         DrawVoidSummoning(voidSummoning, 0);
 
         OmniLight3D AddVoidLight(string name, Color color, float energy, float range, Vector3 position)
@@ -152,42 +153,6 @@ public partial class GrandPrix
             stage.AddChild(light);
             return light;
         }
-    }
-
-    private (Node3D Root, ShaderMaterial Seal) BuildVoidShard(Node3D stage)
-    {
-        var root = new Node3D { Name = "Shard of the Herald", Position = VoidShardLocal, Visible = false };
-        stage.AddChild(root);
-        var crystal = assets.CreateActor(HeraldShardLook.Setup, HeraldShardLook.Motion);
-        root.AddChild(crystal);
-        crystal.Name = "Native crystal";
-        crystal.ApplyNativeAppearance(HeraldShardLook);
-        LightVoidActor(crystal, VoidCasterLightLayer, new Color("c8e6ff"), .95f);
-        Aabb? bounds = null;
-        foreach (var (mesh, index) in crystal.BodyMeshBindings)
-        {
-            if (mesh.Mesh is not { } geometry || !mesh.Visible) continue;
-            Aabb partBounds = (crystal.BodyPartTransform(index) * mesh.Transform) * geometry.GetAabb();
-            bounds = bounds?.Merge(partBounds) ?? partBounds;
-        }
-        if (bounds is { } authoredBounds)
-        {
-            float size = Math.Max(authoredBounds.Size.Y, Math.Max(authoredBounds.Size.X, authoredBounds.Size.Z));
-            float scale = 25 / Math.Max(.1f, size);
-            crystal.Scale = Vector3.One * scale;
-            crystal.Position = -(authoredBounds.GetCenter() * scale);
-        }
-
-        var seal = new ShaderMaterial
-        {
-            Shader = GD.Load<Shader>("res://Shaders/VoidBindingSeal.gdshader"),
-            RenderPriority = 5
-        };
-        var aura = BogCircuit.MeshAt(root, new QuadMesh { Size = new Vector2(76, 76) }, Vector3.Zero, Vector3.One, seal);
-        aura.Name = "Asheron’s seal";
-        aura.ExtraCullMargin = 40;
-        aura.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
-        return (root, seal);
     }
 
     private static MultiMeshInstance3D BuildVoidRestraints(Node3D stage)
@@ -267,6 +232,7 @@ public partial class GrandPrix
         if (voidSummoning is not { } scene || !GodotObject.IsInstanceValid(scene.Root)) return;
         scene.Bindings.Hide();
         scene.Shard.Hide();
+        scene.Herald.Captive.Hide();
         scene.Caster.Show();
         scene.Caster.Position = VoidCasterRest;
         scene.Caster.Rotation = scene.CasterRotation;
@@ -311,15 +277,30 @@ public partial class GrandPrix
 
         DrawVoidChains(scene.Bindings, age, tightening, absorption);
         float reveal = Mathf.SmoothStep(2.26f, 4.64f, age);
+        var herald = scene.Herald;
         scene.Shard.Visible = reveal > 0;
         if (scene.Shard.Visible)
         {
             scene.Shard.Scale = Vector3.One * Mathf.Lerp(.13f, 1, reveal);
             scene.Shard.Rotation = Vector3.Up * (age * .34f);
             float flash = 1 - Mathf.SmoothStep(.06f, .70f, Math.Abs(age - 4.72f));
-            scene.Seal.SetShaderParameter(VoidUniform.Charge, reveal);
-            scene.Seal.SetShaderParameter(VoidUniform.Pulse, flash);
-            scene.Seal.SetShaderParameter(VoidUniform.Age, age);
+            herald.Seal.SetShaderParameter(VoidUniform.Charge, reveal);
+            herald.Seal.SetShaderParameter(VoidUniform.Pulse, flash);
+            herald.Seal.SetShaderParameter(VoidUniform.Age, age);
+            herald.Smoke.SetShaderParameter(VoidUniform.Strength, Mathf.SmoothStep(3.55f, 5.35f, age));
+            if (!visible)
+            {
+                if (!herald.Captive.Visible)
+                {
+                    herald.Actor.Play(VoidCastMotion, once: true);
+                    herald.Actor.TickCurrentMotion(.32f);
+                    herald.Captive.Show();
+                }
+                if (step > 0) herald.Actor.TickCurrentMotion(step * .57f);
+                herald.Captive.Position = Vector3.Up * (.34f * Mathf.Sin(age * 3.1f));
+                herald.Captive.Rotation = new Vector3(.06f * Mathf.Sin(age * 4.3f), .28f * Mathf.Sin(age * 1.19f),
+                    .064f * Mathf.Sin(age * 2.4f));
+            }
             scene.CoronaLight.Position = VoidShardLocal + VoidCasterHeading * 16;
             scene.CoronaLight.LightEnergy = 3.65f + flash * 4.2f;
         }

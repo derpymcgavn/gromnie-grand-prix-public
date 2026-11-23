@@ -29,9 +29,9 @@ void fragment() {
     float dust = clamp(max(cloud.a * 1.95, fine.a * 1.42), 0.0, 1.0);
 
     float folds = .5 + .5 * cos(angle * 3.0 + fine.a * 3.7);
-    float arms = smoothstep(.24, .95, folds);
+    float arms = smoothstep(.34, .97, folds);
     float threads = smoothstep(.55, .995, folds) * smoothstep(.26, .64, dust);
-    float rim = 1.0 - smoothstep(.57, .99, radius);
+    float rim = 1.0 - smoothstep(.49, .96, radius);
     float core = (1.0 - smoothstep(.04, .43, radius)) * (.46 + dust * .54);
 
     // Adjacent spell colors overlap in the dusty space between the arms.
@@ -47,7 +47,7 @@ void fragment() {
     chroma = mix(chroma, vec3(.74, .45, 1.0), core * .55);
     chroma += threads * mix(vec3(.22, .19, .29), vec3(.45, .34, .28), battle_progress);
 
-    float cloudlight = (.055 + .40 * arms + .15 * threads) * (.22 + .78 * dust);
+    float cloudlight = (.38 * arms + .15 * threads) * smoothstep(.16, .78, dust);
     ALBEDO = clamp(chroma, vec3(0.0), vec3(1.0));
     ALPHA = strength * rim * (cloudlight + core * .11) * mix(.82, 1.17, battle_progress);
 }

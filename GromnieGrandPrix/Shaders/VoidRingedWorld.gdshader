@@ -10,6 +10,7 @@ void vertex() {
 
 void fragment() {
     vec4 texel = texture(backdrop, UV);
-    ALBEDO = texel.rgb;
+    float highlight = smoothstep(.13, .49, max(texel.r, max(texel.g, texel.b)));
+    ALBEDO = texel.rgb * mix(.67, .90, highlight);
     ALPHA = texel.a;
 }

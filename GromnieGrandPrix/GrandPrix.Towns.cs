@@ -22,7 +22,7 @@ public partial class GrandPrix
 
     private string CourseName(int id)
     {
-        if (id == VoidCourseId) return VoidCourseName;
+        if (VoidCourses.TryGetValue(id, out var voidCourse)) return voidCourse.Name;
         if (CustomCourse(id) is { } custom) return custom.Name;
         if (spanSprint?.Id == id) return spanSprint.Name;
         if (ridgeCircuits.TryGetValue(id, out var ridge)) return ridge.Name;
@@ -95,7 +95,7 @@ public partial class GrandPrix
     }
 
     private bool TestOriginalCourse => OS.GetCmdlineUserArgs().Contains("--smoke-test");
-    private bool HasCourse(int id) => id == VoidCourseId || spanSprint?.Id == id || mediumRoutes.ContainsKey(id) || xlRoutes.ContainsKey(id) ||
+    private bool HasCourse(int id) => VoidCourses.ContainsKey(id) || spanSprint?.Id == id || mediumRoutes.ContainsKey(id) || xlRoutes.ContainsKey(id) ||
         ridgeCircuits.ContainsKey(id) || landmarkCircuits.ContainsKey(id) || CustomCourse(id) is not null;
 
     private void ChooseCourse(int id)
@@ -113,11 +113,13 @@ public partial class GrandPrix
     {
         if (selectedTown == 0 && !testMode) return false;
         var custom = CustomCourse(selectedTown);
-        if (activeTown == selectedTown && ReferenceEquals(activeCustomCourse, custom)) return true;
+        if (activeTown == selectedTown && ReferenceEquals(activeCustomCourse, custom) &&
+            (!track.IsVoid || VoidBattleIsReady())) return true;
         BogCircuit nextTrack = muckTrack;
         Node3D nextScene = muckCourse;
         if (selectedTown != 0)
         {
+            bool isVoid = VoidCourses.ContainsKey(selectedTown);
             XlRoute? xl = xlRoutes.GetValueOrDefault(selectedTown);
             RidgeCircuit? ridge = ridgeCircuits.GetValueOrDefault(selectedTown);
             LandmarkCircuit? landmarks = landmarkCircuits.GetValueOrDefault(selectedTown);
@@ -130,10 +132,10 @@ public partial class GrandPrix
             AddChild(nextScene);
             try
             {
-                if (selectedTown == VoidCourseId)
+                if (isVoid)
                 {
-                    nextTrack = CreateVoidCircuit();
-                    BuildVoidCourse(nextScene, nextTrack);
+                    nextTrack = CreateVoidCircuit(selectedTown);
+                    BuildVoidCourse(nextScene, nextTrack, selectedTown != VoidCourseId);
                 }
                 else
                 {
@@ -206,10 +208,10 @@ public partial class GrandPrix
             catch (Exception error)
             {
                 if (nextTrack.IsCustom || nextTrack.IsVoid) nextTrack.Curve.Dispose();
-                if (selectedTown == VoidCourseId) ClearVoidCourse();
+                if (isVoid) ClearVoidCourse();
                 RemoveChild(nextScene);
                 nextScene.QueueFree();
-                courseProblem = (custom is not null || selectedTown == VoidCourseId) && error is InvalidDataException
+                courseProblem = (custom is not null || isVoid) && error is InvalidDataException
                     ? error.Message : $"Couldn't load {name}. Pick another course.";
                 GD.PushWarning(error.Message);
                 UpdateStableLabels();

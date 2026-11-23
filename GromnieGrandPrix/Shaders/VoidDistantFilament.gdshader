@@ -13,12 +13,12 @@ void fragment() {
     float along = UV.x;
     float across = UV.y * 2.0 - 1.0;
     float wind = sin(along * 14.5 + seed * 4.7 + TIME * .14) * .24;
-    float arc = strand(across - wind, .13);
-    arc += strand(across + wind * .7 - .27, .10) * .69;
-    arc += strand(across + wind * .6 + .31, .20) * .41;
+    float arc = strand(across - wind, .12);
+    arc += strand(across + wind * .7 - .27, .085) * .69;
+    arc += strand(across + wind * .6 + .31, .16) * .41;
     float breaks = .26 + .74 * smoothstep(-.76, -.04, sin(along * 18.3 + seed * 9.4) + sin(along * 58.1) * .2);
     float tail = smoothstep(.0, .16, along) * (1.0 - smoothstep(.77, 1.0, along));
     float ripple = .64 + .36 * (sin(along * 95.0 + seed * 6.5 - TIME * .85) * .5 + .5);
     ALBEDO = tint.rgb * (arc * .64 + .36);
-    ALPHA = clamp((arc * .59 + strand(across, .61) * .21) * breaks * tail * ripple, 0.0, .81);
+    ALPHA = clamp((arc * .51 + strand(across, .43) * .09) * breaks * tail * ripple, 0.0, .66);
 }

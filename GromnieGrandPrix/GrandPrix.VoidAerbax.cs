@@ -64,6 +64,7 @@ public partial class GrandPrix
         var orbPosition = new Vector3(0, VoidAerbaxOrbHeight, -VoidAerbaxOrbAdvance);
         var sphere = BogCircuit.MeshAt(stage, new QuadMesh { Size = new Vector2(60, 60) }, orbPosition, Vector3.One, orb);
         sphere.Name = "Red energy sphere";
+        sphere.Layers |= VoidReflectionSceneryLayer;
         sphere.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
         sphere.ExtraCullMargin = 43;
 

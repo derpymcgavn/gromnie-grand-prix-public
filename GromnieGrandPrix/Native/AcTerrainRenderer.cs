@@ -43,7 +43,7 @@ public sealed class AcTerrainRenderer
     public long ArrayBytes{get;private set;}
     private const string ShaderCode="""
         shader_type spatial;
-        render_mode cull_disabled, specular_disabled, diffuse_lambert;
+        render_mode cull_disabled, specular_schlick_ggx, diffuse_lambert;
         #include "res://Shaders/SurfaceRelief.gdshaderinc"
         #include "res://Shaders/TrackWater.gdshaderinc"
         uniform sampler2DArray terrain_albedos : source_color, filter_linear_mipmap, repeat_enable;
@@ -133,7 +133,11 @@ public sealed class AcTerrainRenderer
             }
             vec3 reflection;
             vec3 base=ALBEDO;
-            track_water(cloud_world_xz,course.r,course.a,ground_up,eye,TIME,base,reflection);
+            vec3 pool_normal;
+            float film;
+            float pool;
+            track_water_surface(cloud_world_xz,course.r,course.a,ground_up,eye,TIME,base,reflection,film,pool,pool_normal);
+            if(pool>.005)NORMAL=normalize(mix(NORMAL,mat3(VIEW_MATRIX)*pool_normal,pool));
             float river=smoothstep(.35,.92,native_water)*(1.0-max(original_road,course.r));
             river*=smoothstep(.72,.97,ground_up.y);
             if(river>.008){
@@ -156,7 +160,8 @@ public sealed class AcTerrainRenderer
             }
             ALBEDO=base;
             EMISSION=reflection;
-            ROUGHNESS=.99;SPECULAR=0.0;
+            ROUGHNESS=mix(mix(.99,.46,film),.065,pool);
+            SPECULAR=.36*pool;
         }
         """;
     public AcTerrainRenderer(AcAssets assets,AcWorldData.Region region)

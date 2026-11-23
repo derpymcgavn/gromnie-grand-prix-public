@@ -4,7 +4,15 @@ using DerethSurvivors;
 public partial class GrandPrix
 {
     private const int VoidCourseId = 13003;
+    private const int VoidFootworkCourseId = 13004, VoidAerbaxCourseId = 13005;
     private const string VoidCourseName = "Rynthid Singularity";
+    private static readonly IReadOnlyDictionary<int, (string Name, string Details)> VoidCourses =
+        new Dictionary<int, (string, string)>
+        {
+            [VoidCourseId] = (VoidCourseName, "23.1 km total  /  Singularity flyover"),
+            [VoidFootworkCourseId] = ("Bael’Zharon’s Footwork", "Close passes around Bael’Zharon’s legs"),
+            [VoidAerbaxCourseId] = ("Aerbax’s Orbit", "Low circuit around Aerbax’s dais")
+        };
     private const float VoidSideStageScale = 1.7f;
     private static readonly Vector3 VoidAerbaxPosition = new(-505, 35, -84);
     private static readonly Vector3 VoidAsheronPosition = new(638, 62, 70);
@@ -14,7 +22,21 @@ public partial class GrandPrix
     // The worn Rynthid Energy Field cloak uses render surface 0x05003311.
     private const uint RynthidEnergyTexture = 0x05003311;
 
-    private static BogCircuit CreateVoidCircuit()
+    private static BogCircuit CreateVoidCircuit(int id)
+    {
+        Vector3[] points = id switch
+        {
+            VoidFootworkCourseId => VoidFootworkPoints(),
+            VoidAerbaxCourseId => VoidAerbaxPoints(),
+            _ => VoidSingularityPoints()
+        };
+        var circuit = new BogCircuit(VoidCourses[id].Name, [], null, 17, voidCorners: points);
+        var flight = VoidFlyover(circuit);
+        circuit.ReserveFlightSector(flight.Start, flight.End);
+        return circuit;
+    }
+
+    private static Vector3[] VoidSingularityPoints()
     {
         const int anchors = 96;
         var points = new Vector3[anchors];
@@ -27,13 +49,35 @@ public partial class GrandPrix
             float altitude = 106 + 60 * Mathf.Sin(orbit * .5f) + 16 * Mathf.Sin(orbit + .8f) + 8 * Mathf.Cos(2 * orbit - 1.10f);
             points[i] = new Vector3(radius * Mathf.Cos(heading), altitude, radius * Mathf.Sin(heading));
         }
-        var circuit = new BogCircuit(VoidCourseName, [], null, 17, voidCorners: points);
-        var flight = VoidFlyover(circuit);
-        circuit.ReserveFlightSector(flight.Start, flight.End);
-        return circuit;
+        return points;
     }
 
-    private void BuildVoidCourse(Node3D root, BogCircuit circuit)
+    // The low inner turn curls around the altar below the orbiting debris.
+    private static Vector3[] VoidFootworkPoints() =>
+    [
+        new(365, 106, 275), new(525, 132, 134), new(569, 145, -60), new(470, 113, -275),
+        new(271, 88, -424), new(26, 66, -462), new(-226, 48, -373), new(-344, 38, -207),
+        new(-300, 29, -64), new(-190, 20, -39), new(-100, 16, -25), new(-77, 17, 45),
+        new(-29, 19, 88), new(40, 22, 79), new(87, 25, 24), new(91, 29, -56),
+        new(172, 41, -123), new(279, 55, -67), new(339, 66, 52), new(304, 73, 172),
+        new(173, 81, 278), new(-5, 91, 356), new(-185, 96, 375), new(-302, 104, 479),
+        new(-250, 121, 601), new(-65, 136, 648), new(155, 123, 520), new(248, 109, 373)
+    ];
+
+    // Descend from the outer bank, circle the charging dais, then climb back into open space.
+    private static Vector3[] VoidAerbaxPoints() =>
+    [
+        new(265, 129, 51), new(260, 135, -143), new(150, 138, -314), new(-38, 119, -435),
+        new(-267, 98, -447), new(-489, 72, -395), new(-653, 56, -283), new(-700, 49, -164),
+        new(-675, 42, -89), new(-624, 34, -61), new(-613, 31, 12), new(-559, 35, 53),
+        new(-479, 43, 58), new(-410, 49, 10), new(-377, 56, -61), new(-395, 63, -142),
+        new(-343, 70, -230), new(-224, 88, -256), new(-65, 114, -221), new(103, 140, -161),
+        new(154, 152, -48), new(149, 158, 72), new(82, 157, 179), new(-68, 151, 235),
+        new(-223, 147, 285), new(-298, 139, 371),
+        new(-214, 126, 489), new(-20, 120, 545), new(167, 139, 443), new(251, 143, 271)
+    ];
+
+    private void BuildVoidCourse(Node3D root, BogCircuit circuit, bool alternateLayout)
     {
         warmedVoidFlightSkins.Clear();
         var texture = assets.Texture(RynthidEnergyTexture)
@@ -63,7 +107,7 @@ public partial class GrandPrix
         BuildVoidSetpiece(root, Vector3.Zero);
         BuildVoidAerbax(root, VoidAerbaxPosition);
         BuildVoidAsheron(root, VoidAsheronPosition);
-        BuildVoidBattle(root, circuit);
+        BuildVoidBattle(root, circuit, alternateLayout);
         BuildVoidSpectacle(root);
 
         void BuildStrip(string name, float left, float right, float leftY, float rightY, Color leftColor, Color rightColor, Material material)
@@ -95,6 +139,7 @@ public partial class GrandPrix
             var strip = BogCircuit.MeshAt(road, mesh.Commit(), Vector3.Zero, Vector3.One, material);
             strip.Name = name;
             strip.CastShadow = GeometryInstance3D.ShadowCastingSetting.Off;
+            if (material == energy) strip.Layers |= VoidReflectionSceneryLayer;
         }
     }
 

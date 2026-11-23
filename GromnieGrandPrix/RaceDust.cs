@@ -51,6 +51,11 @@ internal sealed class RaceDust
 
     public void SampleFeet(MountedRacer racer, BogCircuit track, bool drifting, bool superDrift = false)
     {
+        if (racer.MountUnavailable)
+        {
+            skidTrail.Stop(racer);
+            return;
+        }
         bool skid = (drifting || superDrift) && racer.Speed > 7;
         Vector3 origin = skid ? racer.CoursePosition(track) : Vector3.Zero;
         Vector3 right = skid ? racer.Right(track).Normalized() : Vector3.Zero;

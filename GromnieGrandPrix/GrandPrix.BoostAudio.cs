@@ -24,6 +24,7 @@ public partial class GrandPrix
 
     private void GrantBoost(MountedRacer racer, float duration)
     {
+        if (racer.MountUnavailable) return;
         racer.Boost = Math.Max(racer.Boost, duration);
         if (elapsed < racer.NextBoostSound || raceAudio is null) return;
         bool player = racer == Player;

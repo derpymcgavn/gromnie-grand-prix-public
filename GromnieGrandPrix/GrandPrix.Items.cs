@@ -108,7 +108,8 @@ public partial class GrandPrix
         playerTrail = 0;
     }
 
-    private Vector3 RiderTarget(MountedRacer racer) => racer.CoursePosition(track) + Vector3.Up * (1.45f + racer.LeapHeight);
+    private Vector3 RiderTarget(MountedRacer racer) =>
+        racer.CoursePosition(track) + Vector3.Up * ((racer.MountUnavailable ? 1.05f : 1.45f) + racer.LeapHeight);
 
     private void ThrowItem(MountedRacer racer, RaceItem item)
     {

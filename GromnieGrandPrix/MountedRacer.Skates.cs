@@ -59,7 +59,7 @@ public sealed partial class MountedRacer
 
         // Keep the boots on the two animated backs, while their average height
         // sets the rider's bob. A dismounted rider leaves the skates on the track.
-        var stance = seat.Transform * (Rider.TopLevel ? seatedTransform : Rider.Transform);
+        var stance = seat.Transform * (overboostDetached ? overboostSeatPose : Rider.TopLevel ? seatedTransform : Rider.Transform);
         Vector3 left = stance * leftBoot, right = stance * rightBoot;
         var leftBasis = new Basis(Vector3.Up, .10f - steering * .23f).Scaled(Vector3.One * Rig.Scale);
         var rightBasis = new Basis(Vector3.Up, -.10f - steering * .23f).Scaled(Vector3.One * Rig.Scale);

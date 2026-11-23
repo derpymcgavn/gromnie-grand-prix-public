@@ -48,7 +48,7 @@ public partial class GrandPrix
     {
         if (activeTown == 0 || !gas || brake || Player.Finish >= 0 || Player.FreeDriving || Player.Flight is not null || Player.ResetHold > 0 ||
             Player.EjectTime > 0 || Player.SpinTime > 0 || Player.Frozen > 0 || Player.Slowed > 0 || Player.Hexed > 0 || IsSudsed(Player) ||
-            Player.Boost > 0 || Player.Distance - lastLineSample < 9) return;
+            Player.Boost > 0 || Player.MountUnavailable || Player.Distance - lastLineSample < 9) return;
         float distance = Player.Distance;
         if (Math.Abs(track.Curvature(distance)) < .0048f) return;
         float width = track.WidthAt(distance);
@@ -129,7 +129,7 @@ public partial class GrandPrix
         var contacts = SenseRivals(racer);
         var obstacles = SenseRivalObstacles(racer);
         float preferred = RivalPreferredLane(racer, driver, look, width);
-        if (index % 2 == 1 && flyover is { Direct: true } summit &&
+        if (!racer.MountUnavailable && index % 2 == 1 && flyover is { Direct: true } summit &&
             AheadOnCourse(racer.Distance, summit.Start) is >= 0 and < 78)
         {
             driver.AimLane = 0;
@@ -140,7 +140,7 @@ public partial class GrandPrix
         var pickup = racer.Item != RaceItem.None ? null : pickups
             .Where(row => row.Available && AheadOnCourse(racer.Distance, row.Distance) is >= 2 and < 42)
             .MinBy(row => AheadOnCourse(racer.Distance, row.Distance) + Math.Abs(row.Lane - racer.Lane) * 1.8f);
-        var pad = pads.Where(row => AheadOnCourse(racer.Distance, row.Distance) is >= 2 and < 48)
+        float? pad = racer.MountUnavailable ? null : pads.Where(row => AheadOnCourse(racer.Distance, row.Distance) is >= 2 and < 48)
             .OrderBy(row => AheadOnCourse(racer.Distance, row.Distance)).Select(row => (float?)row.Lane).FirstOrDefault();
         float[] choices = [preferred, driver.AimLane, racer.Lane, -.83f * edge, -.43f * edge, 0, .43f * edge, .83f * edge,
             pickup?.Lane ?? preferred, pad ?? preferred];
@@ -213,7 +213,7 @@ public partial class GrandPrix
         float targetLane = flipped ? -driver.AimLane : driver.AimLane;
         float aim = (targetLane - racer.Lane) * 1.22f - driver.LaneVelocity * .24f;
         float steer = Mathf.Clamp((aim + curve * 14) / (6.6f * SteeringPace(racer.Speed)), -1, 1);
-        bool sliding = !flipped && !racer.FreeDriving && elapsed >= driver.DriftReady && racer.Speed > 12 &&
+        bool sliding = !flipped && !racer.MountUnavailable && !racer.FreeDriving && elapsed >= driver.DriftReady && racer.Speed > 12 &&
             Math.Abs(curve) * driver.Style.Drift > .010f && Math.Abs(steer) > .17f && driver.DriftCharge < 1.05f;
         if (sliding) driver.DriftCharge += dt;
         if (!sliding && driver.Sliding)

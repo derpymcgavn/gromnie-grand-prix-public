@@ -27,7 +27,8 @@ public partial class GrandPrix
     }
     private void TrySwipe(MountedRacer attacker, int side)
     {
-        if (side == 0 || attacker.Flight is not null || attacker.Hexed > 0 || attacker.Phased > 0 || attacker.LeapHeight > .32f ||
+        if (side == 0 || attacker.MountUnavailable || attacker.Flight is not null ||
+            attacker.Hexed > 0 || attacker.Phased > 0 || attacker.LeapHeight > .32f ||
             attacker.SwipeCooldown > 0 || attacker.GuardWindow > 0 || attacker.ResetHold > 0 || attacker.EjectTime > 0 || attacker.Finish >= 0) return;
         attacker.SwingSide = side;
         attacker.SwingTime = RaceWeapon.SwingDuration;

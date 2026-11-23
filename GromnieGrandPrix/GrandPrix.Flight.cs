@@ -121,7 +121,8 @@ public partial class GrandPrix
 
     private bool LaunchFlight(MountedRacer racer, Flyover? route = null, bool olthoi = false)
     {
-        if (racer.FreeDriving || racer.Flight is not null || racer.EjectTime > 0 || racer.ResetHold > 0 || racer.Finish >= 0)
+        if (racer.MountUnavailable || racer.FreeDriving || racer.Flight is not null || racer.EjectTime > 0 ||
+            racer.ResetHold > 0 || racer.Finish >= 0)
             return false;
         var spitter = olthoi || route is { Direct: true } ? creation.OlthoiSpitter : null;
         if (olthoi && spitter is null) return false;

@@ -554,11 +554,14 @@ public partial class GrandPrix
         itemText.Modulate = Player.Item == RaceItem.None ? Soft : Mint;
         itemIcon.Texture = ItemIcon(Player.Item);
         itemHint.Text = IsSudsed(Player) ? $"CONTROLS FLIPPED  ·  {Mathf.CeilToInt(Player.SudsedUntil - elapsed)}s"
+            : Player.MountRecovery > 0 ? $"ON FOOT  ·  MOUNT RECOVERS IN {Mathf.CeilToInt(Player.MountRecovery)}s"
+            : Player.RemountTime > 0 ? "REMOUNTING"
             : Player.Flight is { } flight ? FlightControlHint(flight) : Player.ResetHold > 0 ? "Recalled to the last checkpoint" : Player.Frozen > 0 ? "Frostbitten · reduced speed"
             : Player.Phased > 0 ? "Ethereal · attacks pass through"
             : Player.Hexed > 0 ? "Zefir Hex · rabbit form"
             : Player.Might > 0 ? "Tusker Might · giant form"
             : Player.Invulnerable > 0 ? "Invulnerability active"
+            : Player.BoostStrain >= MountStrainWarning ? "MOUNT TIRED  ·  EASE OFF THE BOOST"
             : Player.Ward > 0 ? "Portal Ward active" : ItemHint(Player.Item);
         UpdateRaceSpeedUi();
         driftMeter.Size = new Vector2(149 * charge / 1.5f, 8);

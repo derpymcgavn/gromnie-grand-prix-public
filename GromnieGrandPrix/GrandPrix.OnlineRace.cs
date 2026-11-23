@@ -118,7 +118,8 @@ public partial class GrandPrix
             racer.Might, racer.Phased > 0 ? 2 : racer.Hexed > 0 ? 1 : 0, racer.FreeDriving, new(racer.FreePosition),
             racer.FreeYaw, index == 0 ? charge : RemotePilot(index)?.Charge ?? 0, IsSudsed(racer), flight, eject, racer.FallTime,
             racer.GroundDrifting, HasSuperDrift(racer) ? racer.SuperDriftUntil - elapsed : 0,
-            racer.LapCrossings.Count == 0 ? null : racer.LapCrossings.ToArray());
+            racer.LapCrossings.Count == 0 ? null : racer.LapCrossings.ToArray(),
+            racer.BoostStrain, racer.MountRecovery, racer.RemountTime);
     }
 
     private void TickOnlineGuest(float dt)
@@ -246,6 +247,9 @@ public partial class GrandPrix
         racer.ItemCharges = row.Charges;
         racer.Pyreals = row.Pyreals;
         racer.Boost = row.Boost;
+        racer.BoostStrain = float.IsFinite(row.BoostStrain) ? Mathf.Clamp(row.BoostStrain, 0, MountStrainLimit) : 0;
+        racer.MountRecovery = float.IsFinite(row.MountRecovery) ? Mathf.Clamp(row.MountRecovery, 0, MountRecoveryDuration) : 0;
+        racer.RemountTime = float.IsFinite(row.RemountTime) ? Mathf.Clamp(row.RemountTime, 0, MountedRacer.RemountDuration) : 0;
         racer.GroundDrifting = row.GroundDrift;
         racer.SuperDriftUntil = float.IsFinite(row.SuperDrift) && row.SuperDrift > 0 ? elapsed + Math.Min(1.45f, row.SuperDrift) : 0;
         racer.Frozen = row.Frost;

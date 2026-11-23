@@ -77,6 +77,7 @@ public partial class AcActor : Node3D
     private uint[] lastActionAnimationIds=Array.Empty<uint>();
     internal bool ReusePlaybackClips{get;set;}=true;
     private float clipDuration;
+    internal float CurrentMotionDuration => clipDuration;
     private readonly Dictionary<uint,AcFormats.Animation> activeAnimations=new();
     private AcFormats.Animation ActiveAnimation(uint id)=>activeAnimations.TryGetValue(id,out var animation)?animation:activeAnimations[id]=assets.Animation(id);
     private float time;

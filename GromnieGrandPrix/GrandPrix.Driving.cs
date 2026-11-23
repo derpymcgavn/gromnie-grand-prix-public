@@ -11,8 +11,8 @@ public partial class GrandPrix
     private int highlightedGate = -1;
     private const float MetresPerSecondPerMph = 1609.344f / 3600f;
     private const float RoadPace = 60 * MetresPerSecondPerMph, OffRoadPace = 48 * MetresPerSecondPerMph,
-        BoostSpeedCap = 80 * MetresPerSecondPerMph, DriftSpeedCap = 100 * MetresPerSecondPerMph;
-    private const float GroundAcceleration = 15, BoostAcceleration = 32, GroundBraking = 32,
+        BoostSpeedCap = 75 * MetresPerSecondPerMph, DriftSpeedCap = 90 * MetresPerSecondPerMph;
+    private const float GroundAcceleration = 15, BoostAcceleration = 27, GroundBraking = 32,
         TurnBraking = 26, CoastDeceleration = 8;
 
     private void BuildCheckpointBeacons()
@@ -95,7 +95,8 @@ public partial class GrandPrix
         MoveGroundRacer(rider, ref laneVelocity, dt, target, response, steer, sliding, allowOffRoad: true);
     }
 
-    private static float GroundPace(MountedRacer racer) => racer.FreeDriving ? OffRoadPace : RoadPace;
+    private static float GroundPace(MountedRacer racer) =>
+        (racer.FreeDriving ? OffRoadPace : RoadPace) * (racer.MountUnavailable ? .75f : 1);
 
     private static float PaceAcceleration(MountedRacer racer, float target) =>
         target < racer.Speed ? TurnBraking : racer.Boost > 0 ? BoostAcceleration : GroundAcceleration;

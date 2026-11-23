@@ -6,7 +6,8 @@ public sealed partial class AcAssets
 {
     private static readonly uint[] PreparationCommands={0x41000003,0x44000007,0x45000005,0x40000011,
         0x10000063,0x10000062,0x10000064,0x10000058,0x1000005c,0x100000d0,0x100000d1,0x100000d2,
-        0x4000002b,0x40000032,0x400000d3,0x40000031,0x4000002d,0x4000001e,0x40000016};
+        0x4000002b,0x40000032,0x400000d3,0x40000031,0x4000002d,0x4000001e,0x40000016,
+        0x2500003b,0x1000004b,0x1000004a,0x40000015};
     private static readonly uint[] PreparationSourceStates={0x41000003,0x44000007,0x4000001e,0x40000016};
     public AcAssetPreparation PrepareActorAssets(uint setup,uint motion,RareCatalog.Creature? appearance=null,
         IReadOnlyList<CombatCatalog.Weapon>? equipment=null,IReadOnlyList<NativeSpellPhysics.Profile>? projectiles=null,

@@ -24,7 +24,8 @@ internal sealed record OnlineRacer(float Distance, float Lane, float Speed, floa
     int Gates, int Stability, int Item, int Charges, int Pyreals, float Boost, float Frost, float Ward, float Guard,
     float ShieldRecharge, float Reset, float Leap, float Spin, float Swing, int SwingSide, float Might, int Form,
     bool OffRoad, OnlinePoint Position, float Yaw, float Drift, bool Sudsed, OnlineFlight? Flight, OnlineEjection? Ejected,
-    float Fall = 0, bool GroundDrift = false, float SuperDrift = 0, float[]? LapCrossings = null);
+    float Fall = 0, bool GroundDrift = false, float SuperDrift = 0, float[]? LapCrossings = null,
+    float BoostStrain = 0, float MountRecovery = 0, float RemountTime = 0);
 internal sealed record OnlineWave(OnlinePoint Position, uint Tint, float Radius, float Duration, OnlinePoint Tilt);
 internal sealed record OnlineProp(ulong Id, int Kind, OnlinePoint Position, float Yaw);
 internal sealed record OnlineState(int Epoch, int Frame, float Countdown, float Time, bool Complete, OnlineRacer[] Racers,

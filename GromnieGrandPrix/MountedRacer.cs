@@ -156,6 +156,7 @@ public sealed partial class MountedRacer
 
     internal void TakeFlight(FlightRide flight)
     {
+        if (overboostDetached) RestoreOverboostPose(reseat: false);
         Flight = flight;
         SuperDriftUntil = 0;
         GroundDrifting = false;
@@ -181,10 +182,15 @@ public sealed partial class MountedRacer
         flight.Flyer.Root.Hide();
         flight.Flyer.Root.QueueFree();
         Flight = null;
-        SetMountVisible(true);
+        SetMountVisible(PowerForm is null);
     }
 
     internal void SetMountVisible(bool visible)
+    {
+        SetRigVisible(visible && (!MountUnavailable || RemountTime > 0));
+    }
+
+    private void SetRigVisible(bool visible)
     {
         Mount.Visible = visible;
         if (CompanionSkate is not { } companion) return;
@@ -232,7 +238,7 @@ public sealed partial class MountedRacer
         palm.Transform = new Transform3D(aimLower * palm.Basis, grip);
     }
 
-    private void UpdateSaddle(float lean)
+    private void UpdateSaddle(float lean, bool poseRiderArms = true)
     {
         var back = Rig.Platform == MountPlatform.None && CompanionSkate is null ? Mount.BodyPartTransform(Rig.SeatPart) : Transform3D.Identity;
         Saddle.Position = back.Origin + back.Basis * saddleOffset;
@@ -255,6 +261,7 @@ public sealed partial class MountedRacer
         float bodyLean = Rig.Platform == MountPlatform.None ? lean * .29f : 0;
         seat.Rotation = new Vector3(tilt, -SwingSide * swing * .24f, bodyLean - SwingSide * swing * .22f);
         if (Rig.Kind == RaceMountKind.BaelZharon) PoseCarryArms();
+        if (!poseRiderArms) return;
         for (int i = 0; i < weaponArm.Length; i++)
         {
             var (limb, rest) = weaponArm[i];
@@ -464,9 +471,16 @@ public sealed partial class MountedRacer
         float spin = SpinTime > 0 ? Mathf.Tau * (1 - SpinTime / SpinDuration) : 0;
         Root.Rotation = new(Mathf.Clamp(MathF.Atan(grade), -.65f, .65f), BogCircuit.Yaw(forward) + spin,
             Mathf.Clamp(MathF.Atan(crossSlope), -.48f, .48f));
+        if (DrawOverboost(track, dt, moving, steering)) return;
+        DrawMountRig(dt, moving, steering);
+        ApplyRoadPoseLift(track, dt, mounted: true);
+    }
+
+    private void DrawMountRig(float dt, bool moving, float steering, bool poseRiderArms = true)
+    {
         if (CompanionSkate is { } companion)
         {
-            UpdateSaddle(Lean);
+            UpdateSaddle(Lean, poseRiderArms);
             DrawSkates(companion, dt, moving, steering);
         }
         else
@@ -477,8 +491,12 @@ public sealed partial class MountedRacer
                 Mount.Rotation = new(0, -steering * .29f, -Lean * .21f);
             }
             else DrawPlatform(dt, steering);
-            UpdateSaddle(Lean);
+            UpdateSaddle(Lean, poseRiderArms);
         }
+    }
+
+    private void ApplyRoadPoseLift(BogCircuit track, float dt, bool mounted)
+    {
         if (!track.HasGradedRoad || FreeDriving)
         {
             roadPoseLift = 0;
@@ -490,8 +508,9 @@ public sealed partial class MountedRacer
             Root.Position += Vector3.Up * roadPoseLift;
             return;
         }
-        float lift = PowerForm is { } form ? RoadMeshLift(track, form.BodyMeshes) : RoadMeshLift(track, mountRoadContacts);
-        if (PowerForm is null)
+        float lift = PowerForm is { } form ? RoadMeshLift(track, form.BodyMeshes)
+            : mounted ? RoadMeshLift(track, mountRoadContacts) : 0;
+        if (mounted && PowerForm is null)
             lift = Math.Max(lift, RoadMeshLift(track, companionRoadContacts));
         if (!Rider.TopLevel) lift = Math.Max(lift, RoadMeshLift(track, riderRoadContacts));
         roadPoseLift = Math.Max(lift, dt == 0 ? 0 : roadPoseLift - dt * (ReduceRoadContactUpdates ? 11f : 5.5f));

@@ -67,6 +67,7 @@ public partial class GrandPrix
             float laneFraction = gridPlace < 3 ? (gridPlace - 1) * .65f : (gridPlace == 3 ? -.34f : .34f);
             racer.Lane = track.HalfWidth * laneFraction;
             racer.Speed = racer.Boost = racer.Slowed = racer.Lean = 0;
+            racer.BoostStrain = racer.MountRecovery = racer.RemountTime = 0;
             racer.SuperDriftUntil = 0;
             racer.GroundDrifting = false;
             racer.NextBoostSound = 0;
@@ -159,6 +160,8 @@ public partial class GrandPrix
             var racer = racers[i];
             racer.GroundDrifting = false;
             if (racer.Finish >= 0) continue;
+            TickMountRecovery(racer, dt);
+            TickBoostStrain(racer, dt);
             var remote = OnlineHost ? RemotePilot(i) : null;
             if (racer.Falling)
             {
@@ -209,10 +212,10 @@ public partial class GrandPrix
             TickRacerSwipe(racer, dt);
             Vector3 from = racer.CoursePosition(track);
             float before = racer.Distance;
-            bool driftingNow = sliding;
+            bool driftingNow = sliding && !racer.MountUnavailable;
             if (i == 0)
             {
-                MovePlayer(dt, gas, brake, steer, sliding);
+                MovePlayer(dt, gas, brake, steer, driftingNow);
                 if (!OnlineRace) ObservePlayerLine(gas, brake);
             }
             else if (remote is not null) driftingNow = MoveRemote(racer, remote, dt, steeringInput);
@@ -288,12 +291,13 @@ public partial class GrandPrix
     private bool HasSuperDrift(MountedRacer racer) => racer.Boost > 0 && racer.SuperDriftUntil > elapsed;
 
     private static bool WantsGroundDrift(MountedRacer racer, bool held, float steer, bool sliding) =>
-        held && (sliding || Math.Abs(steer) > .1f) && racer.Speed > 8 && !racer.Falling && racer.Flight is null &&
+        held && !racer.MountUnavailable && (sliding || Math.Abs(steer) > .1f) && racer.Speed > 8 && !racer.Falling && racer.Flight is null &&
         racer.EjectTime <= 0 && racer.ResetHold <= 0;
 
     private void ReleaseDriftBoost(MountedRacer racer, float driftCharge, float superThreshold = 1.18f, float superDuration = 1.45f)
     {
-        if (driftCharge <= .58f || racer.Flight is not null || racer.Falling || racer.EjectTime > 0 || racer.ResetHold > 0) return;
+        if (driftCharge <= .58f || racer.MountUnavailable || racer.Flight is not null || racer.Falling ||
+            racer.EjectTime > 0 || racer.ResetHold > 0) return;
         bool super = driftCharge > superThreshold;
         if (super) racer.SuperDriftUntil = elapsed + superDuration;
         GrantBoost(racer, super ? superDuration : .82f);
@@ -302,10 +306,10 @@ public partial class GrandPrix
 
     private float SpeedLimit(MountedRacer racer, float normal)
     {
-        float pace = normal + racer.Pyreals * .20f;
+        float pace = normal + (racer.MountUnavailable ? 0 : racer.Pyreals * .20f);
         if (racer.Slowed > 0 || racer.Frozen > 0) return pace * .54f;
         if (racer.Hexed > 0) return pace * .76f;
-        if (racer.Boost <= 0) return pace;
+        if (racer.Boost <= 0 || racer.MountUnavailable) return pace;
         float cap = HasSuperDrift(racer) ? DriftSpeedCap : BoostSpeedCap;
         return Math.Min(pace + (cap - RoadPace), cap);
     }
@@ -314,7 +318,7 @@ public partial class GrandPrix
     {
         if (TryFlyover(racer, before)) return;
         foreach (var pad in pads)
-            if (Crossed(before, racer.Distance, pad.Distance) && Mathf.Abs(racer.Lane - pad.Lane) < 1.24f)
+            if (!racer.MountUnavailable && Crossed(before, racer.Distance, pad.Distance) && Mathf.Abs(racer.Lane - pad.Lane) < 1.24f)
             {
                 GrantBoost(racer, 1.14f);
                 if (racer == Player) Callout("BOOST PAD!");
@@ -358,6 +362,11 @@ public partial class GrandPrix
     {
         var item = racer.Item;
         if (item == RaceItem.None) return;
+        if (racer.MountUnavailable && item is (RaceItem.Pepper or RaceItem.Gromnatross or RaceItem.OlthoiLift))
+        {
+            if (racer == Player) Callout("SAVE IT UNTIL YOUR MOUNT IS BACK", 1.25f);
+            return;
+        }
         if (item is RaceItem.Gromnatross or RaceItem.OlthoiLift)
         {
             if (LaunchFlight(racer, olthoi: item == RaceItem.OlthoiLift)) HoldItem(racer, RaceItem.None);

@@ -4,7 +4,7 @@ An arcade racer built in Godot. Ride a gromnie through Dereth, collect spell pic
 
 ## Windows download
 
-Download and run `Gromnie-Grand-Prix-Setup-x64.exe` from the [Windows v1.0.9 release](https://github.com/derpymcgavn/gromnie-grand-prix-public/releases/tag/v1.0.9). On first launch, choose the folder containing `client_portal.dat` and `client_cell_1.dat` from your Asheron's Call installation.
+Download and run `Gromnie-Grand-Prix-Setup-x64.exe` from the [v1.0.12 release](https://github.com/derpymcgavn/gromnie-grand-prix-public/releases/tag/v1.0.12). On first launch, choose the folder containing `client_portal.dat` and `client_cell_1.dat` from your Asheron's Call installation. The release page also has a free MP3 soundtrack download.
 
 ## Run from source
 
@@ -28,7 +28,7 @@ Use the [Windows installer recipe](deploy/windows/README.md) to package the expo
 
 ## Android
 
-Download the APK from the [Android v1.0.11 release](https://github.com/derpymcgavn/gromnie-grand-prix-public/releases/tag/v1.0.11). The Android ARM64 build imports both DAT files from a folder selected in Android's file picker. See the [Android build and setup instructions](GromnieGrandPrix/Android/README.md).
+Download the ARM64 APK from the [v1.0.12 release](https://github.com/derpymcgavn/gromnie-grand-prix-public/releases/tag/v1.0.12). The Android build imports both DAT files from a folder selected in Android's file picker. See the [Android build and setup instructions](GromnieGrandPrix/Android/README.md).
 
 ## Verify a local build
 

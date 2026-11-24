@@ -17,6 +17,7 @@ uniform vec3 moon_two_direction = vec3(-.3,.2,-.93);
 uniform bool has_moon_one = false;
 uniform bool has_moon_two = false;
 uniform bool simple_clouds = false;
+global uniform float dereth_rain;
 
 float sky_hash(vec2 p) {
     vec3 q = fract(vec3(p.xyx) * .1031);
@@ -140,7 +141,16 @@ void sky() {
     float glow = pow(toward_sun, 12.0) * .22 + pow(toward_sun, 38.0) * .20;
     float disk = smoothstep(.99965, .99988, toward_sun) * 1.2 * (1.0-night);
     air += sun_color * (glow + disk) * sunlight;
-    if (!AT_CUBEMAP_PASS && altitude > .025) {
+    if (AT_CUBEMAP_PASS && dereth_rain > .0 && altitude > .025) {
+        // A direction-only cloud layer gives specular rays a stable, cheap sky to reflect.
+        vec2 uv = direction.xz * (.60 / (altitude + .36)) + vec2(.27, .82);
+        float broad = textureLod(cloud_noise, uv, 2.0).r;
+        float detail = textureLod(cloud_noise, uv * 2.2 + vec2(.47, .79), 1.5).r;
+        float cutoff = cloud_threshold * .68 + .22;
+        float coverage = smoothstep(cutoff - .06, cutoff + .12, mix(broad, detail, .24));
+        vec3 cloud_light = mix(horizon * .83, cloud_color * .84, broad);
+        air = mix(air, cloud_light, coverage * smoothstep(.025, .16, altitude) * dereth_rain);
+    } else if (!AT_CUBEMAP_PASS && altitude > .025) {
         if (night > .0) air += star_layer(direction) * night * night * smoothstep(.03, .32, altitude);
         float moonlight = mix(.29, .98, night);
         air = moon_disk(air, direction, moon_one_direction, .039, moon_one, has_moon_one, vec3(.77, .85, .94), moonlight);

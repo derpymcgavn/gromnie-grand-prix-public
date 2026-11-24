@@ -109,7 +109,8 @@ public partial class GrandPrix
     }
 
     private Vector3 RiderTarget(MountedRacer racer) =>
-        racer.CoursePosition(track) + Vector3.Up * ((racer.MountUnavailable ? 1.05f : 1.45f) + racer.LeapHeight);
+        racer.CoursePosition(track) + Vector3.Up * ((racer.MountUnavailable ? 1.05f : 1.45f) + racer.LeapHeight +
+            (racer.UsesJetSki ? racer.SkiHeave : 0));
 
     private void ThrowItem(MountedRacer racer, RaceItem item)
     {
@@ -330,6 +331,12 @@ public partial class GrandPrix
 
     private void RecallRacer(MountedRacer racer, string playerMessage)
     {
+        if (racer.UsesSnowboard)
+        {
+            RecoverSnowboard(racer);
+            return;
+        }
+
         racer.Land();
         racer.Reattach();
         ClearRacerPowers(racer);
@@ -337,14 +344,22 @@ public partial class GrandPrix
         Array.Clear(racer.DustContact);
         racer.FreeDriving = false;
         racer.FallTime = 0;
+        racer.ResetSnowboardPhysics();
         racer.Stability = 100;
         racer.SwingTime = 0;
         racer.GuardWindow = racer.GuardFlash = 0;
-        racer.Distance = racer.Checkpoint;
+        racer.Distance = racer.OnFootToFinish ? Math.Max(racer.Checkpoint, track.DismountLine + 3) : racer.Checkpoint;
         racer.Lane = 0;
         racer.Speed = racer.Slowed = racer.Frozen = racer.Boost = racer.Lean = 0;
         racer.ResetHold = .82f;
         racer.ItemGrace = 1.65f;
+        SyncHybridTravel(racer, quiet: true);
+        if (racer.UsesJetSki)
+        {
+            racer.SkiDriftStreak = 0;
+            racer.ResetJetSkiWater();
+            TickJetSkiWater(racer, 0, 0, false);
+        }
         racer.Draw(track, 0, false);
         Wave(racer.Root.Position + Vector3.Up * .65f, WardTint, 2, .95f);
         if (racer == Player)

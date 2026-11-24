@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using DerethSurvivors;
 using Godot;
 
@@ -20,12 +21,17 @@ internal readonly record struct OnlinePoint(float X, float Y, float Z)
 internal sealed record OnlineFlight(int Kind, OnlinePoint Position, float Yaw, float Age, float Pitch, float Bank,
     float Roll, float Recharge);
 internal sealed record OnlineEjection(OnlinePoint Position, OnlinePoint Rotation, float Scale);
+internal sealed record OnlineSki(float Heave, float Pitch, float Roll, float Contact, bool Airborne);
+internal sealed record OnlineSnowboard(OnlinePoint Position, OnlinePoint Velocity, OnlinePoint Heading, float Pitch, float Roll, bool Airborne);
 internal sealed record OnlineRacer(float Distance, float Lane, float Speed, float Lean, float Finish, float Checkpoint,
     int Gates, int Stability, int Item, int Charges, int Pyreals, float Boost, float Frost, float Ward, float Guard,
     float ShieldRecharge, float Reset, float Leap, float Spin, float Swing, int SwingSide, float Might, int Form,
     bool OffRoad, OnlinePoint Position, float Yaw, float Drift, bool Sudsed, OnlineFlight? Flight, OnlineEjection? Ejected,
     float Fall = 0, bool GroundDrift = false, float SuperDrift = 0, float[]? LapCrossings = null,
-    float BoostStrain = 0, float MountRecovery = 0, float RemountTime = 0);
+    float BoostStrain = 0, float MountRecovery = 0, float RemountTime = 0,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool OnFootToFinish = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] OnlineSki? Ski = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] OnlineSnowboard? Board = null);
 internal sealed record OnlineWave(OnlinePoint Position, uint Tint, float Radius, float Duration, OnlinePoint Tilt);
 internal sealed record OnlineProp(ulong Id, int Kind, OnlinePoint Position, float Yaw);
 internal sealed record OnlineState(int Epoch, int Frame, float Countdown, float Time, bool Complete, OnlineRacer[] Racers,

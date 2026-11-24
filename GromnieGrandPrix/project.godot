@@ -34,4 +34,6 @@ dereth_horizon={ "type": "vec3", "value": Vector3(0.83, 0.88, 0.9) }
 dereth_zenith={ "type": "vec3", "value": Vector3(0.22, 0.48, 0.72) }
 dereth_light={ "type": "vec3", "value": Vector3(0.45, 0.8, 0.4) }
 dereth_scene_grade={ "type": "vec4", "value": Vector4(0.19, 1.09, 0.29, 0.004) }
+regatta_fluid_displacement={ "type": "sampler2D", "value": "" }
+regatta_fluid_bounds={ "type": "vec4", "value": Vector4(0, 0, 0, 0) }
 

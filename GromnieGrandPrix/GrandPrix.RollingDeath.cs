@@ -116,7 +116,7 @@ public partial class GrandPrix
     private void SenseRollingDeath(RaceEncounter site, MountedRacer racer, List<RivalObstacle> obstacles)
     {
         float ahead = site.Distance - racer.Distance;
-        if (!track.IsSprint) ahead = Mathf.Wrap(ahead, -track.Length * .5f, track.Length * .5f);
+        if (!track.IsPointToPoint) ahead = Mathf.Wrap(ahead, -track.Length * .5f, track.Length * .5f);
         if (ahead is < -26 or > 109) return;
         float age = elapsed - site.Start;
         float speed = Math.Max(10, racer.Speed);

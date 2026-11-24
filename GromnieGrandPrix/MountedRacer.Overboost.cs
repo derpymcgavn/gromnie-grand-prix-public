@@ -4,15 +4,25 @@ using DerethSurvivors;
 public sealed partial class MountedRacer
 {
     internal float BoostStrain, MountRecovery, RemountTime;
-    internal bool MountUnavailable => MountRecovery > 0 || RemountTime > 0;
-    internal bool CanRemount => !Falling && Flight is null && !Rider.TopLevel &&
+    internal bool MountUnavailable => OnFootToFinish || MountRecovery > 0 || RemountTime > 0;
+    internal bool CanRemount => !OnFootToFinish && !Falling && Flight is null && !Rider.TopLevel &&
         EjectTime <= 0 && ResetHold <= 0 && PowerForm is null && Leap <= 0;
     internal const float RemountDuration = .65f;
+    internal const float JetSkiRecoveryDuration = 20, JetSkiThrowDuration = .72f;
+    internal float JetSkiThrowAge
+    {
+        get
+        {
+            float age = JetSkiRecoveryDuration - MountRecovery;
+            return UsesJetSki && age is >= 0 and < JetSkiThrowDuration ? age : -1;
+        }
+    }
 
     private const uint MountDeathMotion = 0x40000011, NativeReady = 0x41000003, NativeRun = 0x44000007;
     private bool overboostDetached, overboostJumpPose, overboostRemountPose;
     private bool overboostRiderVisible;
     private float mountDeathRemaining, runningFootOffset;
+    private Vector3 jetSkiLaunchOrigin;
     private Transform3D overboostSeatPose, overboostMountPose, overboostCompanionPose;
 
     private bool DrawOverboost(BogCircuit track, float dt, bool moving, float steering)
@@ -34,6 +44,7 @@ public sealed partial class MountedRacer
             if (!overboostRemountPose)
             {
                 RestoreOverboostMount();
+                if (UsesJetSki) Rider.Rotation = Vector3.Zero;
                 StartOverboostJump();
                 overboostRemountPose = true;
             }
@@ -41,7 +52,14 @@ public sealed partial class MountedRacer
             DrawMountRig(dt, moving, steering, poseRiderArms: false);
             float progress = 1 - Mathf.Clamp(RemountTime / RemountDuration, 0, 1);
             Vector3 seatTarget = Root.ToLocal(seat.ToGlobal(overboostSeatPose.Origin));
-            Rider.Position = (Vector3.Up * runningFootOffset).Lerp(seatTarget, Mathf.SmoothStep(0, 1, progress))
+            Vector3 foot = Vector3.Up * runningFootOffset;
+            if (UsesJetSki)
+            {
+                Vector3 world = Root.GlobalPosition;
+                world.Y = track.WaterCourseLevel!.Value + SkiSurfaceOffset(world) + SkiFootClearance + runningFootOffset;
+                foot = Root.ToLocal(world);
+            }
+            Rider.Position = foot.Lerp(seatTarget, Mathf.SmoothStep(0, 1, progress))
                 + Vector3.Up * (.85f * Mathf.Sin(Mathf.Pi * progress));
             Rider.TickCurrentMotion(dt);
         }
@@ -52,7 +70,16 @@ public sealed partial class MountedRacer
             if (!Rider.TopLevel)
             {
                 Rider.Position = Vector3.Up * runningFootOffset;
-                if (Leap > 0 || Falling)
+                if (JetSkiThrowAge >= 0)
+                {
+                    float progress = JetSkiThrowAge / JetSkiThrowDuration;
+                    float arch = Mathf.Sin(Mathf.Pi * progress);
+                    Rider.Position = jetSkiLaunchOrigin.Lerp(Rider.Position, Mathf.SmoothStep(0, 1, progress))
+                        + Vector3.Up * (1.35f * arch) + Vector3.Forward * (1.65f * arch);
+                    Rider.Rotation = new Vector3(-.86f * arch, 0, .38f * arch);
+                    Rider.TickCurrentMotion(dt);
+                }
+                else if (Leap > 0 || Falling)
                 {
                     if (!overboostJumpPose) StartOverboostJump(Falling);
                     Rider.TickCurrentMotion(dt);
@@ -61,6 +88,7 @@ public sealed partial class MountedRacer
                 {
                     if (overboostJumpPose)
                     {
+                        if (UsesJetSki) Rider.Rotation = Vector3.Zero;
                         Rider.HoldFinalPose = false;
                         Rider.Play(moving ? NativeRun : NativeReady, false);
                         overboostJumpPose = false;
@@ -79,6 +107,7 @@ public sealed partial class MountedRacer
         overboostDetached = true;
         overboostSeatPose = Rider.Transform;
         overboostRiderVisible = Rider.Visible;
+        if (UsesJetSki) jetSkiLaunchOrigin = Root.ToLocal(Rider.GlobalPosition);
         Rider.Reparent(Root, false);
         float runningScale = flightRiderScale * RaceMount.Get(RaceMountKind.Gromnie).Scale;
         Rider.Transform = new Transform3D(Basis.FromScale(Vector3.One * runningScale), Vector3.Zero);
@@ -93,6 +122,11 @@ public sealed partial class MountedRacer
         overboostCompanionPose = CompanionSkate?.Transform ?? Transform3D.Identity;
         SetRigVisible(false);
         if (MountRecovery <= 0 || PowerForm is not null) return;
+        if (UsesJetSki)
+        {
+            if (JetSkiThrowAge >= 0) StartOverboostJump(falling: true);
+            return;
+        }
         float duration = StartMountDeath(Mount);
         if (CompanionSkate is { } companion) duration = Math.Max(duration, StartMountDeath(companion));
         mountDeathRemaining = duration;
@@ -112,6 +146,18 @@ public sealed partial class MountedRacer
 
     private void DrawOverboostMountDeath(float dt)
     {
+        if (jetSkiRig is { } ski)
+        {
+            float age = JetSkiThrowAge;
+            ski.Visible = age >= 0 && PowerForm is null;
+            if (ski.Visible)
+            {
+                float progress = age / JetSkiThrowDuration;
+                ski.Position = new Vector3(.45f * progress, -1.15f * progress * progress, 7.5f * progress);
+                ski.Rotation = new Vector3(.38f * progress, .53f * progress, -1.05f * progress);
+            }
+            return;
+        }
         mountDeathRemaining = Math.Max(0, mountDeathRemaining - dt);
         bool visible = mountDeathRemaining > 0 && PowerForm is null;
         Mount.Visible = visible && Mount.TopLevel;
@@ -146,6 +192,7 @@ public sealed partial class MountedRacer
 
     private void RestoreOverboostMount()
     {
+        if (jetSkiRig is { } ski) ski.Transform = Transform3D.Identity;
         RestoreMountActor(Mount, overboostMountPose);
         if (CompanionSkate is { } companion) RestoreMountActor(companion, overboostCompanionPose);
         mountDeathRemaining = 0;

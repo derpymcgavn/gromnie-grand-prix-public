@@ -4,7 +4,8 @@ using DerethSurvivors;
 internal partial class TrackSketch : Control
 {
     private static readonly Color Paper = new("101b1c"), MinorGrid = new("e3e9b625"),
-        BlockGrid = new("e3e9b66c"), Gold = new("ffcf76"), Mint = new("7ce7c0");
+        BlockGrid = new("e3e9b66c"), Gold = new("ffcf76"), Mint = new("7ce7c0"),
+        SkiBlue = new("59e0ed"), FlightLilac = new("d3acff");
     private AcLandArena? land;
     private Texture2D? terrain;
     private Vector2 pan;
@@ -13,6 +14,9 @@ internal partial class TrackSketch : Control
     private (Vector2 Point, bool Building)[] scenery = [];
 
     internal Vector2[] Guides = [], Road = [], Ghost = [];
+    internal (TrackTravelMode Mode, Vector2[] Line)[] Sections = [];
+    internal TrackTravelMode[] GuideModes = [];
+    internal TrackTravelMode PreviewMode;
     internal Vector2? Cursor, Start;
     internal Vector2 StartRight;
     internal int Selected = -1, Snap = 24;
@@ -22,6 +26,13 @@ internal partial class TrackSketch : Control
     internal event Action<Vector2>? Moved;
     internal event Action? Released;
     internal event Action? Exited;
+
+    internal static Color ModeColor(TrackTravelMode mode) => mode switch
+    {
+        TrackTravelMode.JetSki => SkiBlue,
+        TrackTravelMode.Flight => FlightLilac,
+        _ => Gold
+    };
 
     private float ScaleFactor => land is null ? 1 : (Math.Min(Size.X, Size.Y) - 40) / land.WorldBounds.Size.X * zoom;
     private Vector2 Origin => Size * .5f + pan - (land?.WorldBounds.GetCenter() ?? Vector2.Zero) * ScaleFactor;
@@ -133,9 +144,11 @@ internal partial class TrackSketch : Control
         if (Road.Length > 1)
         {
             var pixels = Road.Select(ToScreen).ToArray();
-            DrawPolyline(pixels, new Color("171c1ee7"), Math.Max(5, RoadWidth * ScaleFactor + 3), true);
-            DrawPolyline(pixels, new Color("c18a4eeb"), Math.Max(3, RoadWidth * ScaleFactor), true);
-            DrawPolyline(pixels, Gold, 1.4f, true);
+            float width = Math.Max(3, RoadWidth * ScaleFactor);
+            DrawPolyline(pixels, new Color("171c1ee7"), width + 3, true);
+            if (Sections.Length == 0) DrawSection(pixels, TrackTravelMode.Ground, width);
+            else foreach (var section in Sections)
+                DrawSection(section.Line.Select(ToScreen).ToArray(), section.Mode, width);
         }
         for (int i = 1; i < Guides.Length; i++)
             DrawDashedLine(ToScreen(Guides[i - 1]), ToScreen(Guides[i]), new Color("fff1bc53"), 1, 6);
@@ -144,7 +157,8 @@ internal partial class TrackSketch : Control
             Vector2 at = ToScreen(Guides[i]);
             float radius = i == Selected ? 6.4f : 4.8f;
             DrawCircle(at, radius + 1.4f, Paper, antialiased: true);
-            DrawCircle(at, radius, i == 0 ? Mint : i == Selected ? Colors.White : Gold, antialiased: true);
+            Color mode = i < GuideModes.Length ? ModeColor(GuideModes[i]) : Gold;
+            DrawCircle(at, radius, i == Selected ? Colors.White : i == 0 ? Mint : mode, antialiased: true);
         }
         if (Start is { } start)
         {
@@ -154,13 +168,21 @@ internal partial class TrackSketch : Control
             DrawDashedLine(left, right, Mint, 3.4f, 4);
         }
 
-        Color ghost = GhostFits ? Mint : new Color("ff8b7a");
+        Color ghost = GhostFits ? PreviewMode == TrackTravelMode.Ground ? Mint : ModeColor(PreviewMode) : new Color("ff8b7a");
         for (int i = 1; i < Ghost.Length; i++)
             DrawDashedLine(ToScreen(Ghost[i - 1]), ToScreen(Ghost[i]), ghost, 2, 7);
         foreach (var point in Ghost) DrawCircle(ToScreen(point), 3.7f, ghost, antialiased: true);
         if (Cursor is { } cursor && Ghost.Length == 0)
             DrawArc(ToScreen(cursor), 6.3f, 0, Mathf.Tau, 16, ghost, 1.5f, true);
         DrawRect(new(Vector2.Zero, Size), new Color("577067"), false, 1);
+    }
+
+    private void DrawSection(Vector2[] pixels, TrackTravelMode mode, float width)
+    {
+        Color lane = ModeColor(mode);
+        Color fill = mode == TrackTravelMode.Ground ? new Color("c18a4eeb") : lane.Darkened(.28f);
+        DrawPolyline(pixels, fill, width, true);
+        DrawPolyline(pixels, lane, 1.4f, true);
     }
 
     private void DrawGrid(Rect2 bounds, float step, Color color, float width)

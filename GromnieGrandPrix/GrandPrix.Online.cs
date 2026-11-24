@@ -30,7 +30,7 @@ public partial class GrandPrix
     {
         internal int Serial, Held, Actions;
         internal ulong LastInput;
-        internal float Lateral, Charge, Steer;
+        internal float Steer, Lateral, Charge;
         internal bool Sliding, StartBoost, PreviousGas;
     }
 

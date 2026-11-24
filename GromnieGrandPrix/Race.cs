@@ -18,10 +18,13 @@ public partial class GrandPrix
     private bool drifting, racing, paused, finished;
     private string message = "";
     private MountedRacer Player => racers[localRacerIndex];
+    private float RegattaWaterTime => elapsed + 3 - Math.Max(0, countdown);
+    private readonly List<(Node3D Pad, Vector3 Anchor, Vector3 Heading)> regattaPads = [];
 
     private void BuildCourseItems()
     {
         pads.Clear();
+        regattaPads.Clear();
         courseItems = new Node3D { Name = "Race pickups and pads" };
         course.AddChild(courseItems);
         ConfigureItemVisuals();
@@ -31,23 +34,45 @@ public partial class GrandPrix
         BuildFlyover();
         BuildCitadelBattle();
         BuildRoadside();
+        Texture2D? plate = track.HasWaterSections ? RegattaPlateTexture() : null;
+        var skiPad = track.HasWaterSections ? RegattaFinish(plate, "28a8ad", .32f, .5f) : null;
+        var skiStripe = track.HasWaterSections ? RegattaFinish(plate, "b3ffe4", .36f, .8f) : null;
         var padBase = track.IsVoid ? Glow(new Color("8c285c")) : BogCircuit.Paint("d87d32");
         var padStripe = track.IsVoid ? Glow(new Color("ffd0f3")) : BogCircuit.Paint("ffe098");
         int boostPads = track.IsRegional ? Mathf.CeilToInt(track.Length / 320) : 3;
         for (int i = 0; i < boostPads; i++)
         {
             float at = BogCircuit.Grid + 58 + i * track.Length / boostPads;
-            if (track.IsSpan(at) || track.IsSprint && at >= track.Gate(track.GateCount) - 20) continue;
+            if (track.IsSpan(at) || track.IsPointToPoint && at >= track.Gate(track.GateCount) - 20 ||
+                track.IsDismountSprint && at + 8 >= track.DismountLine) continue;
+            var travel = track.TravelSection(at);
+            if (travel.Mode == TrackTravelMode.Flight || at + 4 >= travel.End) continue;
             float lane = track.WidthAt(at) * .47f * (i % 2 == 1 ? -1 : 1);
             pads.Add((at, lane));
+            if (travel.Mode == TrackTravelMode.JetSki)
+            {
+                Vector3 anchor = track.Surface(at + 1.8f, lane), heading = track.Forward(at + 1.8f);
+                var pad = new Node3D { Name = "Floating boost plate", Position = anchor };
+                courseItems.AddChild(pad);
+                BogCircuit.Box(pad, Vector3.Up * .025f, new Vector3(2.28f, .17f, 3.6f), skiPad!);
+                for (int stripe = 0; stripe < 3; stripe++)
+                    BogCircuit.Box(pad, new Vector3(0, .113f, (stripe - 1) * 1.02f), new Vector3(1.96f, .016f, .32f), skiStripe!);
+                regattaPads.Add((pad, anchor, heading));
+                continue;
+            }
             track.Ribbon(courseItems, lane - 1.14f, lane + 1.14f, .052f, padBase, at, at + 3.6f);
             for (int stripe = 0; stripe < 3; stripe++)
                 track.Ribbon(courseItems, lane - .98f, lane + .98f, .056f, padStripe, at + stripe * 1.1f + .38f, at + stripe * 1.1f + .66f);
         }
+        BuildIslandSplashes();
+        BuildIslandGolems();
+        BuildIslandShow();
     }
 
     private void ResetRace()
     {
+        ResetRegattaFluid();
+        ResetSnowLayer();
         ClearItemVisuals();
         ResetCitadelBattle();
         raceAudio?.Clear();
@@ -67,7 +92,9 @@ public partial class GrandPrix
             float laneFraction = gridPlace < 3 ? (gridPlace - 1) * .65f : (gridPlace == 3 ? -.34f : .34f);
             racer.Lane = track.HalfWidth * laneFraction;
             racer.Speed = racer.Boost = racer.Slowed = racer.Lean = 0;
+            racer.ResetDismountSprint();
             racer.BoostStrain = racer.MountRecovery = racer.RemountTime = 0;
+            racer.SkiDriftStreak = 0;
             racer.SuperDriftUntil = 0;
             racer.GroundDrifting = false;
             racer.NextBoostSound = 0;
@@ -76,6 +103,7 @@ public partial class GrandPrix
             racer.LapCrossings.Clear();
             racer.FreeDriving = false;
             racer.FallTime = 0;
+            racer.ResetSnowboardPhysics();
             Array.Clear(racer.DustContact);
             racer.Stability = 100;
             racer.Land();
@@ -84,6 +112,12 @@ public partial class GrandPrix
             racer.Frozen = racer.ResetHold = racer.ItemGrace = racer.Ward = racer.SwingTime = racer.SwipeCooldown = 0;
             racer.GuardWindow = racer.GuardCooldown = racer.GuardFlash = 0;
             racer.Finish = -1;
+            SyncHybridTravel(racer, quiet: true);
+            if (racer.UsesJetSki)
+            {
+                racer.ResetJetSkiWater();
+                racer.StepJetSkiWater(racer.CoursePosition(track), racer.Heading(track), 0, 0, 0, false, regattaFluid);
+            }
             HoldItem(racer, RaceItem.None);
             racer.Pyreals = 0;
             racer.Draw(track, 0, false);
@@ -91,17 +125,22 @@ public partial class GrandPrix
         elapsed = lateral = charge = pickupLock = notification = 0;
         ResetRivalDrivers();
         ResetRoadside();
+        ResetIslandGolems();
+        ResetIslandSplashes();
+        ResetIslandShow();
         place = RacerCount;
         lap = 1;
         ResetVoidProgress();
         voidGalaxyLap = 0;
         finishDeadline = 0;
         countdown = 3;
+        if (track.HasWaterSections) UpdateRegattaSurface(refreshFluid: true);
         drifting = paused = finished = false;
         racing = true;
+        if (track.IsKaleidoscope) UpdateKaleidoscopeProbe(0, refresh: true);
         raceTouchUi?.Show();
         message = "";
-        if (track.IsVoid)
+        if (track.IsVoidBattle)
         {
             ResetVoidFinaleVisuals();
             SetVoidGalaxyProgress(0);
@@ -117,7 +156,7 @@ public partial class GrandPrix
         if (countdown > 0)
         {
             TickRoadside(dt);
-            if (track.IsVoid) TickVoidBattle(dt);
+            if (track.IsVoidBattle) TickVoidBattle(dt);
             if (countdown <= .68f && gas && !previousGas) startBoostReady = true;
             previousGas = gas;
             if (OnlineHost) MarkRemoteStarts(false);
@@ -128,13 +167,23 @@ public partial class GrandPrix
                 if (OnlineHost) MarkRemoteStarts(true);
                 Callout(Player.Boost > 0 ? "ROCKET START!" : "GO!", .75f);
             }
-            foreach (var racer in racers) racer.Draw(track, dt, false);
+            if (track.HasWaterSections) UpdateRegattaSurface();
+            foreach (var racer in racers)
+            {
+                TickJetSkiWater(racer, dt, 0, false);
+                racer.Draw(track, dt, false);
+            }
             return;
         }
 
         elapsed += dt;
+        if (track.HasWaterSections)
+        {
+            TickRegattaFluid(dt);
+            UpdateRegattaSurface();
+        }
         TickShields(dt);
-        if (track.IsVoid) TickVoidBattle(dt);
+        if (track.IsVoidBattle) TickVoidBattle(dt);
         TickRoadside(dt);
         TickCitadelBattle(dt);
         notification = Math.Max(notification - dt, 0);
@@ -148,7 +197,7 @@ public partial class GrandPrix
         if (localActive && requestRoll && Player.Flight is { } ride) ride.TryRoll(steer);
         requestRoll = false;
         bool sliding = localActive && WantsGroundDrift(Player, drift, steer, drifting);
-        if (sliding) charge = Math.Min(charge + dt, 1.5f);
+        if (sliding && !Player.SnowboardAirborne) charge = Math.Min(charge + dt, 1.5f);
         if (!sliding && drifting)
         {
             if (localActive) ReleaseDriftBoost(Player, charge);
@@ -159,10 +208,28 @@ public partial class GrandPrix
         {
             var racer = racers[i];
             racer.GroundDrifting = false;
-            if (racer.Finish >= 0) continue;
+            if (racer.Finish >= 0)
+            {
+                if (racer.UsesJetSki)
+                {
+                    TickJetSkiWater(racer, dt, 0, false);
+                    racer.Draw(track, dt, false);
+                }
+                continue;
+            }
             TickMountRecovery(racer, dt);
             TickBoostStrain(racer, dt);
             var remote = OnlineHost ? RemotePilot(i) : null;
+            if (TickDismountSprintTransition(racer, dt))
+            {
+                if (remote is not null)
+                {
+                    remote.Actions = 0;
+                    remote.Lateral = remote.Charge = 0;
+                    remote.Sliding = false;
+                }
+                continue;
+            }
             if (racer.Falling)
             {
                 if (remote is not null)
@@ -189,6 +256,7 @@ public partial class GrandPrix
                     TickFlight(racer, flight, dt, steeringInput, (remote.Held & FreeFlightBit) != 0, dive, climb);
                 }
                 else TickFlight(racer, flight, dt, CitadelRivalBank(racer, flight, i));
+                TryDismountSprint(racer);
                 continue;
             }
             if (racer.EjectTime > 0)
@@ -196,17 +264,24 @@ public partial class GrandPrix
                 racer.EjectTime = Math.Max(0, racer.EjectTime - dt);
                 if (racer.EjectTime > 0)
                 {
+                    TickJetSkiWater(racer, dt, 0, false);
                     racer.Draw(track, dt, false);
                     racer.Tumble(track);
                 }
-                else RecallRacer(racer, "BACK IN THE SADDLE");
+                else RecallRacer(racer, racer.OnFootToFinish ? "BACK ON YOUR FEET" : "BACK IN THE SADDLE");
                 continue;
             }
             if (racer.ResetHold > 0)
             {
                 racer.ResetHold = Math.Max(0, racer.ResetHold - dt);
                 racer.Speed = 0;
+                TickJetSkiWater(racer, dt, 0, false);
                 racer.Draw(track, dt, false);
+                continue;
+            }
+            if (SyncHybridTravel(racer))
+            {
+                racer.Draw(track, dt, true);
                 continue;
             }
             TickRacerSwipe(racer, dt);
@@ -220,22 +295,39 @@ public partial class GrandPrix
             }
             else if (remote is not null) driftingNow = MoveRemote(racer, remote, dt, steeringInput);
             else driftingNow = MoveRival(racer, i, dt);
-            if (racer.Flight is not null || racer.Falling) continue;
+            if (racer.Flight is not null || racer.Falling || racer.EjectTime > 0) continue;
             racer.Boost = Math.Max(0, racer.Boost - dt);
             racer.Slowed = Math.Max(0, racer.Slowed - dt);
             if (!racer.FreeDriving) CheckCourse(racer, before, i);
             Vector3 after = racer.CoursePosition(track);
             RecordGate(racer, from, after, dt);
+            bool hadSki = racer.UsesJetSki;
+            if (SyncHybridTravel(racer))
+            {
+                racer.Draw(track, dt, true);
+                continue;
+            }
+            if (hadSki != racer.UsesJetSki) driftingNow = false;
+            if (TryDismountSprint(racer)) continue;
+            if (TryJesterPortal(racer, before))
+            {
+                racer.Draw(track, dt, true);
+                continue;
+            }
+            float steering = (i == 0 ? lateral : remote?.Lateral ?? rivalDrivers[i - 1].LaneVelocity) / (LaneSteeringRate(racer, false) + .4f * SteeringPace(racer)) *
+                (driftingNow ? 1 : .52f);
+            if (racer.UsesJetSki && racer.FreeDriving) steering = racer.Lean;
+            TickJetSkiWater(racer, dt, steering, driftingNow);
             CheckRoadHazards(racer, i, from, after);
             CheckEncounterHits(racer, i, from, after);
-            if (track.IsVoid) CheckVoidBattleHits(racer, i, from, after);
+            if (track.IsWaterCourse) CheckIslandGolemHits(racer, i, from, after);
+            if (track.IsVoidBattle) CheckVoidBattleHits(racer, i, from, after);
             if (racer.EjectTime > 0) continue;
             CheckMudHits(racer, from, after);
-            racer.GroundDrifting = driftingNow;
-            float steering = (i == 0 ? lateral : remote?.Lateral ?? rivalDrivers[i - 1].LaneVelocity) / (7 * SteeringPace(racer.Speed)) *
-                (driftingNow ? 1 : .52f);
+            racer.GroundDrifting = driftingNow && !racer.SnowboardAirborne;
             racer.Draw(track, dt, racer.Speed > .4f, steering);
-            if ((!YanshiPerformanceProfile || racer == Player) && racer.Flight is null && racer.LeapHeight <= .10f && racer.PowerForm is null)
+            if (!racer.UsesJetSki && !racer.UsesSnowboard && (!YanshiPerformanceProfile || racer == Player) && racer.Flight is null &&
+                racer.LeapHeight <= .10f && racer.PowerForm is null)
                 dust.SampleFeet(racer, track, driftingNow, superDrift: HasSuperDrift(racer));
         }
 
@@ -248,6 +340,7 @@ public partial class GrandPrix
         }
 
         UpdatePickupVisuals(elapsed);
+        TickSnowLayer(dt);
         dust.Tick(dt);
         TickItemEffects(dt);
         raceAudio?.Tick();
@@ -255,7 +348,7 @@ public partial class GrandPrix
         int nextLap = Mathf.Clamp((Player.GatesCleared - 1) / track.GateCount + 1, 1, track.Laps);
         if (nextLap > lap) Callout(nextLap == track.Laps ? "FINAL LAP!" : $"LAP {nextLap}", 1.6f);
         lap = nextLap;
-        if (track.IsVoid) UpdateVoidRaceProgress();
+        if (track.IsVoidBattle) UpdateVoidRaceProgress();
         if (RaceComplete())
         {
             finished = true;
@@ -269,13 +362,13 @@ public partial class GrandPrix
 
     private bool RaceComplete()
     {
-        if (!track.IsVoid && !OnlineRace) return Player.Finish >= 0;
+        if (!track.IsVoidBattle && !OnlineRace) return Player.Finish >= 0;
 
         bool waiting = false;
         for (int i = 0; i < racers.Count; i++)
         {
             bool human = i == 0 || OnlineRace && RemotePilot(i) is not null;
-            if (!human && !track.IsVoid) continue;
+            if (!human && !track.IsVoidBattle) continue;
             var racer = racers[i];
             if (racer.Finish < 0) waiting = true;
             else if (human && finishDeadline == 0)
@@ -292,12 +385,14 @@ public partial class GrandPrix
 
     private static bool WantsGroundDrift(MountedRacer racer, bool held, float steer, bool sliding) =>
         held && !racer.MountUnavailable && (sliding || Math.Abs(steer) > .1f) && racer.Speed > 8 && !racer.Falling && racer.Flight is null &&
+        (!racer.SnowboardAirborne || sliding) &&
         racer.EjectTime <= 0 && racer.ResetHold <= 0;
 
     private void ReleaseDriftBoost(MountedRacer racer, float driftCharge, float superThreshold = 1.18f, float superDuration = 1.45f)
     {
         if (driftCharge <= .58f || racer.MountUnavailable || racer.Flight is not null || racer.Falling ||
             racer.EjectTime > 0 || racer.ResetHold > 0) return;
+        if (TryThrowFromJetSki(racer)) return;
         bool super = driftCharge > superThreshold;
         if (super) racer.SuperDriftUntil = elapsed + superDuration;
         GrantBoost(racer, super ? superDuration : .82f);
@@ -310,8 +405,8 @@ public partial class GrandPrix
         if (racer.Slowed > 0 || racer.Frozen > 0) return pace * .54f;
         if (racer.Hexed > 0) return pace * .76f;
         if (racer.Boost <= 0 || racer.MountUnavailable) return pace;
-        float cap = HasSuperDrift(racer) ? DriftSpeedCap : BoostSpeedCap;
-        return Math.Min(pace + (cap - RoadPace), cap);
+        float cap = BoostCap(racer, HasSuperDrift(racer));
+        return Math.Min(pace + (cap - CruisePace(racer)), cap);
     }
 
     private void CheckCourse(MountedRacer racer, float before, int index)
@@ -348,7 +443,7 @@ public partial class GrandPrix
     }
 
     private bool Crossed(float before, float after, float milestone) =>
-        track.IsSprint ? before < milestone && after >= milestone
+        track.IsPointToPoint ? before < milestone && after >= milestone
             : Mathf.Floor((after - milestone) / track.Length) > Mathf.Floor((before - milestone) / track.Length);
 
     private static void HoldItem(MountedRacer racer, RaceItem item)
@@ -362,6 +457,8 @@ public partial class GrandPrix
     {
         var item = racer.Item;
         if (item == RaceItem.None) return;
+        if (racer.UsesJetSki && !IslandWaterPickup(item)) return;
+        if (racer.OnFootToFinish && IsMountedPickup(item)) return;
         if (racer.MountUnavailable && item is (RaceItem.Pepper or RaceItem.Gromnatross or RaceItem.OlthoiLift))
         {
             if (racer == Player) Callout("SAVE IT UNTIL YOUR MOUNT IS BACK", 1.25f);

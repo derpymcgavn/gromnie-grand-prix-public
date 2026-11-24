@@ -142,10 +142,8 @@ public partial class GrandPrix
         var arrays = strip.SurfaceGetArrays(0);
         var vertices = arrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
         var triangles = arrays[(int)Mesh.ArrayType.Index].AsInt32Array();
-        int rings = vertices.Length - triangles.Length / 6;
-        int columns = vertices.Length / rings;
-        Require(rings > 100 && columns >= 7 && triangles[^1] == columns - 1,
-            "the road has connected lanes and the final row wraps onto the first");
+        var (rings, columns) = CheckClosedStrip(vertices, triangles, "continuous dirt road");
+        Require(rings > 100 && columns >= 7, "the road has connected lanes around the loop");
         foreach (string side in new[] { "Left", "Right" })
         {
             var adjacent = vertices;
@@ -156,9 +154,9 @@ public partial class GrandPrix
                 var surface = deck.GetNode<MeshInstance3D>($"{side} {stripName}").Mesh.SurfaceGetArrays(0);
                 var indices = surface[(int)Mesh.ArrayType.Index].AsInt32Array();
                 var stripVertices = surface[(int)Mesh.ArrayType.Vertex].AsVector3Array();
-                int width = stripVertices.Length / rings;
-                Require(indices.Length == rings * (width - 1) * 6 && indices[^1] == width - 1,
-                    $"{side} {stripName} wraps across the start of the loop");
+                var (stripRings, width) = CheckClosedStrip(stripVertices, indices, $"{side} {stripName}");
+                Require(stripRings == rings && width == (stripName == "packed shoulder" ? 2 : 3),
+                    $"{side} {stripName} matches the road segments");
                 for (int i = 0; i < rings; i++)
                     Require(adjacent[i * priorColumns + (1 - inner) * (priorColumns - 1)] ==
                         stripVertices[i * width + inner * (width - 1)], $"{side} {stripName} shares its adjacent edge");
@@ -171,10 +169,11 @@ public partial class GrandPrix
                 adjacent = stripVertices;
                 priorColumns = width;
             }
-            for (int i = (1 - inner) * (priorColumns - 1); i < adjacent.Length; i += priorColumns)
+            int outer = (1 - inner) * (priorColumns - 1);
+            for (int row = 0; row < rings; row++)
             {
-                var toe = adjacent[i];
-                var next = adjacent[(i + priorColumns) % adjacent.Length];
+                var toe = adjacent[row * priorColumns + outer];
+                var next = adjacent[(row + 1) % rings * priorColumns + outer];
                 var middle = toe.Lerp(next, .5f);
                 Require(track.NativeBounds.HasPoint(new Vector2(toe.X, toe.Z)) &&
                     toe.Y < track.FreeGround(toe).Y - .29f && middle.Y < track.FreeGround(middle).Y,
@@ -212,6 +211,37 @@ public partial class GrandPrix
         UpdateCheckpointArchVisibility();
         Require(arch.Visible, "the overhead bar reappears once the camera clears it");
         SetRaceCamera(1);
+    }
+
+    private static (int Rings, int Columns) CheckClosedStrip(Vector3[] vertices, int[] indices, string strip)
+    {
+        Require(indices.Length >= 6 && indices[0] == 0 && indices[1] > 1, $"{strip} has indexed lanes");
+        int columns = indices[1];
+        int rowIndices = (columns - 1) * 6;
+        int rings = indices.Length / rowIndices;
+        bool duplicatedEnd = vertices.Length == (rings + 1) * columns;
+        Require(rings >= 3 && indices.Length == rings * rowIndices &&
+            (duplicatedEnd || vertices.Length == rings * columns), $"{strip} has a complete row for each segment");
+        if (duplicatedEnd)
+        {
+            for (int column = 0; column < columns; column++)
+                Require(vertices[column].DistanceSquaredTo(vertices[rings * columns + column]) < .000001f,
+                    $"{strip} closes with coincident start and end vertices");
+        }
+
+        string connects = $"{strip} joins each lane to the next row, including across the seam";
+        for (int row = 0; row < rings; row++)
+        {
+            int next = duplicatedEnd ? row + 1 : (row + 1) % rings;
+            for (int column = 0; column < columns - 1; column++)
+            {
+                int at = row * rowIndices + column * 6;
+                int a = row * columns + column, b = next * columns + column;
+                Require(indices[at] == a && indices[at + 1] == b && indices[at + 2] == a + 1 &&
+                    indices[at + 3] == a + 1 && indices[at + 4] == b && indices[at + 5] == b + 1, connects);
+            }
+        }
+        return (rings, columns);
     }
 
     private void CheckCustomRoadContainment(float distance, int exposedSide)
@@ -303,9 +333,12 @@ public partial class GrandPrix
         TickRace(step, true, false, side, false, false);
         Require(Player.Falling, "steering past the raised edge starts a fall");
         float height = Player.CoursePosition(track).Y;
+        float initialTime = Player.FallTime;
         for (int frame = 0; frame < 14; frame++) TickRace(step, true, false, side, false, false);
-        Require(Player.Falling && Player.CoursePosition(track).Y < height - .45f && Player.GatesCleared == gates,
-            "the racer drops before recall without passing a checkpoint");
+        float age = Player.FallTime;
+        float expectedDrop = .5f * RacePhysics.Gravity * (age * age - initialTime * initialTime);
+        Require(Player.Falling && Math.Abs(height - Player.CoursePosition(track).Y - expectedDrop) < .025f &&
+            Player.GatesCleared == gates, "the racer falls at Earth gravity before recall without passing a checkpoint");
         SetRaceCamera(1);
         Require(camera.Position.IsFinite() && camera.Basis.IsFinite(), "the camera remains stable during the fall");
         for (int frame = 0; frame < 90 && Player.Falling; frame++) TickRace(step, true, false, side, false, false);

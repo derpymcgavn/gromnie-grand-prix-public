@@ -15,7 +15,8 @@ public partial class GrandPrix
     private TrackSketch sketch = null!;
     private Label editorStatus = null!, editorStats = null!, editorHeading = null!, editorArea = null!;
     private LineEdit editorName = null!, editorBlock = null!;
-    private OptionButton editorSaved = null!, editorSize = null!, editorPlaces = null!, editorTool = null!;
+    private OptionButton editorSaved = null!, editorSize = null!, editorPlaces = null!, editorTool = null!,
+        editorTravelType = null!;
     private SpinBox editorWidth = null!;
     private Button editorLoop = null!, editorStart = null!, editorSave = null!, editorTest = null!,
         editorUndo = null!, editorRedo = null!;
@@ -23,11 +24,14 @@ public partial class GrandPrix
     private System.Action? editorDiscardAction;
     private AcLandArena? editorLand;
     private readonly List<Vector2> editorPoints = [];
-    private readonly List<(Vector2[] Points, bool Closed)> undoTrack = [], redoTrack = [];
+    private readonly List<TrackTravelMode> editorModes = [];
+    private readonly List<EditorTrackShape> undoTrack = [], redoTrack = [];
+    private TrackTravelMode editorTravelMode;
     private int editorId, editorSelected = -1, editorRotation, editorSnap = 24;
     private bool editorClosed, editorDirty, editorLoading, editorDrag;
     private Vector2[]? editorDragBefore;
     private Vector2? editorPointer;
+    private readonly record struct EditorTrackShape(Vector2[] Points, TrackTravelMode[] Modes, bool Closed);
     private static readonly int[] TrackSnaps = [0, 8, 12, 16, 24, 32, 48];
     private static readonly string[] Headings = ["N", "E", "S", "W"];
     private static readonly Vector2[][] TrackPieces =
@@ -98,7 +102,7 @@ public partial class GrandPrix
         editorBlock = EditorField(46, 239, 170, 10, "B9EB or B9EBFFFF");
         editorBlock.TextSubmitted += _ => ChangeEditorLocation();
         Action(trackEditorUi, "LOAD", 225, 239, 80, 34, ChangeEditorLocation);
-        editorSize = EditorChoice(46, 286, 91, CustomTrack.Grids.Select(n => $"{n} × {n}"));
+        editorSize = EditorChoice(46, 286, 91, CustomTrack.Grids.Select(n => $"{n}×{n}"));
         editorSize.Select(1);
         editorSize.ItemSelected += _ => ChangeEditorLocation();
         editorPlaces = EditorChoice(146, 286, 159, ["Jump to area"]);
@@ -112,9 +116,13 @@ public partial class GrandPrix
         };
 
         Plate(trackEditorUi, 46, 335, 259, 1, "6b805b");
-        Text(trackEditorUi, "PIECE", 46, 349, 230, 13, Soft);
-        editorTool = EditorChoice(46, 369, 259, ["Spline point", "Straight", "Sweeper left", "Sweeper right", "S bend"]);
+        Text(trackEditorUi, "PIECE", 46, 349, 135, 13, Soft);
+        editorTool = EditorChoice(46, 369, 135, ["Spline point", "Straight", "Sweeper left", "Sweeper right", "S bend"]);
         editorTool.ItemSelected += _ => UpdateTrackPointer(editorPointer);
+        Text(trackEditorUi, "SECTION TYPE", 190, 349, 115, 13, Soft);
+        editorTravelType = EditorChoice(190, 369, 115, ["Ground", "Jet Ski", "Flight"]);
+        editorTravelType.TooltipText = "Set the route from the selected point to the next point. New pieces use the selected section type.";
+        editorTravelType.ItemSelected += index => ChangeTrackTravelMode((TrackTravelMode)index);
         Text(trackEditorUi, "GRID SNAP", 46, 415, 120, 13, Soft);
         Text(trackEditorUi, "ROAD WIDTH (M)", 179, 415, 127, 13, Soft);
         var snap = EditorChoice(46, 436, 120, TrackSnaps.Select(m => m == 0 ? "Off" : $"{m} m"));
@@ -144,7 +152,10 @@ public partial class GrandPrix
         Action(trackEditorUi, "BACK TO STABLE", 46, 740, 259, 27, HideTrackEditor);
 
         Text(trackEditorUi, "DERETH  /  TERRAIN PLAN", 347, 36, 345, 17, Gold);
-        editorArea = Text(trackEditorUi, "", 347, 61, 620, 14, Soft);
+        editorArea = Text(trackEditorUi, "", 347, 61, 345, 14, Soft);
+        Text(trackEditorUi, "GROUND", 706, 60, 76, 13, TrackSketch.ModeColor(TrackTravelMode.Ground));
+        Text(trackEditorUi, "JET SKI", 790, 60, 76, 13, TrackSketch.ModeColor(TrackTravelMode.JetSki));
+        Text(trackEditorUi, "FLIGHT", 874, 60, 76, 13, TrackSketch.ModeColor(TrackTravelMode.Flight));
         Action(trackEditorUi, "−", 1038, 37, 55, 39, () => sketch.Zoom(1 / 1.4f));
         Action(trackEditorUi, "+", 1101, 37, 55, 39, () => sketch.Zoom(1.4f));
         Action(trackEditorUi, "FIT", 1164, 37, 87, 39, () => sketch.Fit());
@@ -260,7 +271,12 @@ public partial class GrandPrix
         editorLoading = true;
         editorId = saved?.Id ?? 0;
         editorPoints.Clear();
+        editorModes.Clear();
         if (saved is not null) editorPoints.AddRange(saved.Controls());
+        if (saved?.Modes is { } modes) editorModes.AddRange(modes);
+        else editorModes.AddRange(Enumerable.Repeat(TrackTravelMode.Ground, editorPoints.Count));
+        editorTravelMode = TrackTravelMode.Ground;
+        editorTravelType.Select((int)editorTravelMode);
         editorName.Text = saved?.Name ?? "New Circuit";
         editorWidth.Value = saved?.Width ?? CustomTrack.DefaultWidth;
         editorClosed = saved is not null;
@@ -271,8 +287,8 @@ public partial class GrandPrix
         redoTrack.Clear();
         editorLoading = false;
         UpdateTrackArea();
-        EditorMessage(saved is null ? "Click to place spline points, or choose a piece and build from its end."
-            : "Drag a spline point to reshape this circuit.");
+        EditorMessage(saved is null ? "Click to place points. Section Type sets the route from a point to the next one."
+            : "Select a point to change its section type, or drag it to reshape the circuit.");
         RefreshTrackPicker();
         ReplotTrack();
     }
@@ -374,6 +390,7 @@ public partial class GrandPrix
     {
         editorPointer = point;
         sketch.Cursor = point is { } at ? SnapPoint(at) : null;
+        sketch.PreviewMode = editorTravelMode;
         sketch.Ghost = [];
         sketch.GhostFits = sketch.Cursor is { } cursor && InTrackArea(cursor);
         if (point is not null && editorTool.Selected > 0 && sketch.Cursor is { } origin)
@@ -430,6 +447,7 @@ public partial class GrandPrix
             editorDrag = true;
             editorDragBefore = editorPoints.ToArray();
             editorSelected = hit;
+            SyncTrackTravelMode();
             ReplotTrack();
             return;
         }
@@ -449,7 +467,9 @@ public partial class GrandPrix
             }
             if (editorPoints.Count + piece.Length > CustomTrack.MaxPoints) { TrackPointLimit(); return; }
             RecordTrackEdit();
+            if (editorModes.Count > 0) editorModes[^1] = editorTravelMode;
             editorPoints.AddRange(piece);
+            editorModes.AddRange(Enumerable.Repeat(editorTravelMode, piece.Length));
             editorSelected = editorPoints.Count - 1;
             if (editorTool.Selected is 2 or 3) RotatePiece(editorTool.Selected == 2 ? -1 : 1);
             if (closes) editorClosed = true;
@@ -475,8 +495,13 @@ public partial class GrandPrix
                 }
             }
             RecordTrackEdit();
+            TrackTravelMode mode = click.AltPressed && editorPoints.Count > 1
+                ? editorModes[insertAt - 1] : editorTravelMode;
+            if (!click.AltPressed && !editorClosed && editorModes.Count > 0) editorModes[^1] = mode;
             editorPoints.Insert(insertAt, snapped);
+            editorModes.Insert(insertAt, mode);
             editorSelected = insertAt;
+            SyncTrackTravelMode();
             EditorMessage(editorClosed ? "Spline point added." :
                 editorPoints.Count >= 4 ? "Use Close Loop or double-click the first point." : "Place at least four spline points.");
         }
@@ -499,11 +524,31 @@ public partial class GrandPrix
         UpdateTrackPointer(editorPointer);
     }
 
+    private void ChangeTrackTravelMode(TrackTravelMode mode)
+    {
+        EndTrackDrag();
+        editorTravelMode = mode;
+        if (editorSelected >= 0 && editorModes[editorSelected] != mode)
+        {
+            RecordTrackEdit();
+            editorModes[editorSelected] = mode;
+        }
+        SyncTrackTravelMode();
+        ReplotTrack();
+    }
+
+    private void SyncTrackTravelMode()
+    {
+        if (editorSelected >= 0) editorTravelMode = editorModes[editorSelected];
+        editorTravelType.Select((int)editorTravelMode);
+    }
+
     private void RemoveTrackPoint(int index)
     {
         if (index < 0 || index >= editorPoints.Count) return;
         RecordTrackEdit();
         editorPoints.RemoveAt(index);
+        editorModes.RemoveAt(index);
         editorSelected = -1;
         if (editorPoints.Count < 4) editorClosed = false;
         ReplotTrack();
@@ -514,9 +559,13 @@ public partial class GrandPrix
         if (editorSelected <= 0 || !editorClosed) return;
         RecordTrackEdit();
         var start = editorPoints.Take(editorSelected).ToArray();
+        var modes = editorModes.Take(editorSelected).ToArray();
         editorPoints.RemoveRange(0, editorSelected);
+        editorModes.RemoveRange(0, editorSelected);
         editorPoints.AddRange(start);
+        editorModes.AddRange(modes);
         editorSelected = 0;
+        SyncTrackTravelMode();
         ReplotTrack();
         EditorMessage("Start moved to the selected point’s section.");
     }
@@ -534,20 +583,22 @@ public partial class GrandPrix
 
     private void RecordTrackEdit(Vector2[]? before = null)
     {
-        undoTrack.Add((before ?? editorPoints.ToArray(), editorClosed));
+        undoTrack.Add(new(before ?? editorPoints.ToArray(), editorModes.ToArray(), editorClosed));
         if (undoTrack.Count > 64) undoTrack.RemoveAt(0);
         redoTrack.Clear();
         editorDirty = true;
     }
 
-    private void RecallShape(List<(Vector2[] Points, bool Closed)> from, List<(Vector2[] Points, bool Closed)> to)
+    private void RecallShape(List<EditorTrackShape> from, List<EditorTrackShape> to)
     {
         if (from.Count == 0) return;
-        to.Add((editorPoints.ToArray(), editorClosed));
+        to.Add(new(editorPoints.ToArray(), editorModes.ToArray(), editorClosed));
         var shape = from[^1];
         from.RemoveAt(from.Count - 1);
         editorPoints.Clear();
         editorPoints.AddRange(shape.Points);
+        editorModes.Clear();
+        editorModes.AddRange(shape.Modes);
         editorClosed = shape.Closed;
         editorSelected = -1;
         editorDirty = true;
@@ -561,6 +612,8 @@ public partial class GrandPrix
         float length = spline.GetBakedLength();
         sketch.Guides = editorPoints.ToArray();
         sketch.Road = spline.GetBakedPoints().Select(point => new Vector2(point.X, point.Z)).ToArray();
+        sketch.Sections = PlotTravelSections(spline, spacing);
+        sketch.GuideModes = editorModes.ToArray();
         sketch.Selected = editorSelected;
         sketch.RoadWidth = (float)editorWidth.Value;
         sketch.Start = null;
@@ -582,13 +635,35 @@ public partial class GrandPrix
         UpdateTrackPointer(editorPointer);
     }
 
+    private (TrackTravelMode Mode, Vector2[] Line)[] PlotTravelSections(Curve3D spline, float spacing)
+    {
+        if (!editorModes.Any(mode => mode != TrackTravelMode.Ground)) return [];
+        var sections = new (TrackTravelMode Mode, Vector2[] Line)[Math.Max(0, spline.PointCount - 1)];
+        for (int i = 0; i < sections.Length; i++)
+        {
+            Vector3 a = spline.GetPointPosition(i), b = spline.GetPointPosition(i + 1);
+            Vector3 lead = a + spline.GetPointOut(i), entry = b + spline.GetPointIn(i + 1);
+            float controlLength = a.DistanceTo(lead) + lead.DistanceTo(entry) + entry.DistanceTo(b);
+            int count = Math.Max(2, Mathf.CeilToInt(controlLength / spacing));
+            var line = new Vector2[count + 1];
+            for (int step = 0; step <= count; step++)
+            {
+                Vector3 point = spline.Sample(i, step / (float)count);
+                line[step] = new Vector2(point.X, point.Z);
+            }
+            sections[i] = (editorModes[i], line);
+        }
+        return sections;
+    }
+
     private CustomTrack MakeCustomTrack(int id)
     {
         if (editorLand is null || !editorClosed) throw new InvalidDataException("Close the circuit before racing.");
         string name = editorName.Text.Trim();
         if (name.Length == 0) throw new InvalidDataException("Give your circuit a name.");
         return new CustomTrack(id, name, editorLand.Block.Id, editorLand.GridSide, (float)editorWidth.Value,
-            editorPoints.Select(point => new[] { point.X, point.Y }).ToArray());
+            editorPoints.Select(point => new[] { point.X, point.Y }).ToArray(),
+            Modes: editorModes.Any(mode => mode != TrackTravelMode.Ground) ? editorModes.ToArray() : null);
     }
 
     private void SaveCustomTrack()
@@ -609,7 +684,8 @@ public partial class GrandPrix
             Disk.Move(file + ".tmp", file, overwrite: true);
             if (customTracks.TryGetValue(id, out var prior) &&
                 (prior.Center != draft.Center || prior.GridSide != draft.GridSide || prior.Width != draft.Width ||
-                 !prior.Controls().SequenceEqual(draft.Controls())))
+                 !prior.Controls().SequenceEqual(draft.Controls()) ||
+                 !(prior.Modes ?? []).SequenceEqual(draft.Modes ?? [])))
             {
                 bestByCourse.Remove(id);
                 rivalLines.Forget(id);

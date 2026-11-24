@@ -143,7 +143,32 @@ public partial class GrandPrix
         });
     }
 
-    private static ArrayMesh BuildVoidDeckRims(BogCircuit circuit)
+    private static ArrayMesh BuildClosedVoidDeck(BogCircuit circuit, int tiles)
+    {
+        using var mesh = new SurfaceTool();
+        mesh.Begin(Mesh.PrimitiveType.Triangles);
+        int sections = Mathf.CeilToInt(circuit.Length / VoidRoadSurface.MeshStep);
+        for (int i = 0; i <= sections; i++)
+        {
+            float fraction = (float)i / sections;
+            float station = i == sections ? 0 : fraction * circuit.Length;
+            Vector3 up = circuit.Right(station).Cross(circuit.Forward(station)).Normalized();
+            for (int side = 0; side < 2; side++)
+            {
+                mesh.SetNormal(up);
+                mesh.SetUV(new Vector2(side, fraction * tiles));
+                mesh.SetColor(new Color(fraction, 0, 0));
+                mesh.AddVertex(circuit.Surface(station, (2 * side - 1) * circuit.HalfWidth));
+            }
+            if (i == 0) continue;
+            int previous = i * 2 - 2;
+            mesh.AddIndex(previous); mesh.AddIndex(previous + 2); mesh.AddIndex(previous + 1);
+            mesh.AddIndex(previous + 1); mesh.AddIndex(previous + 2); mesh.AddIndex(previous + 3);
+        }
+        return mesh.Commit();
+    }
+
+    private static ArrayMesh BuildVoidDeckRims(BogCircuit circuit, Func<float, Color>? colorAt = null)
     {
         int sections = Mathf.CeilToInt(circuit.Length / 2);
         using var mesh = new SurfaceTool();
@@ -154,7 +179,7 @@ public partial class GrandPrix
             float fraction = (float)i / sections;
             float at = i == sections ? 0 : fraction * circuit.Length;
             float width = circuit.WidthAt(at);
-            Color light = VoidSpectrum(fraction);
+            Color light = colorAt?.Invoke(fraction) ?? VoidSpectrum(fraction);
             Vector3 edge = circuit.Surface(at, side * width);
             Vector3 bevel = circuit.Surface(at, side * (width - 1.5f)) - Vector3.Up * 3;
             mesh.SetColor(light * .62f);

@@ -33,7 +33,7 @@ public partial class GrandPrix
         {
             YanshiXlCourseId => new Flyover("YANSHI FLYOVER", 74, 385, 62, -77),
             XlCourseOffset + 72 => new Flyover("RIVER BLUFF FLYOVER", 108, 376, 57, -86),
-            _ when track.IsVoid => VoidFlyover(track),
+            _ when track.IsVoidBattle => VoidFlyover(track),
             _ => null
         };
         if (ridgeCircuits.TryGetValue(activeTown, out var ridge))
@@ -119,24 +119,34 @@ public partial class GrandPrix
         ? SummitPoint(track, route.Start, route.End, t, 0, route.Height, 0, route.CitadelFlyby)
         : FlightPoint(Mathf.Lerp(route.Start, route.End, t), t, 0, route.Height, route.Sweep, 0);
 
-    private bool LaunchFlight(MountedRacer racer, Flyover? route = null, bool olthoi = false)
+    private bool LaunchFlight(MountedRacer racer, Flyover? route = null, bool olthoi = false,
+        bool courseFlight = false, bool quiet = false)
     {
-        if (racer.MountUnavailable || racer.FreeDriving || racer.Flight is not null || racer.EjectTime > 0 ||
+        if (racer.UsesJetSki || racer.MountUnavailable || racer.FreeDriving || racer.Flight is not null || racer.EjectTime > 0 ||
             racer.ResetHold > 0 || racer.Finish >= 0)
             return false;
-        var spitter = olthoi || route is { Direct: true } ? creation.OlthoiSpitter : null;
+        var spitter = olthoi || courseFlight || route is { Direct: true } ? creation.OlthoiSpitter : null;
         if (olthoi && spitter is null) return false;
         float at = racer.Distance;
-        if (track.IsSprint && track.Gate(track.GateCount) - at < 12 || spitter is null && !racer.PrepareFallingPose()) return false;
+        float end = route?.End ?? at + BasicFlightDistance;
+        if (track.IsPointToPoint) end = Math.Min(end, track.Length - 2);
+        if (track.HasHybridTravel && !courseFlight)
+        {
+            var section = track.TravelSection(at);
+            if (section.Mode != TrackTravelMode.Ground || section.End - at < 12) return false;
+            end = Math.Min(end, section.End);
+        }
+        if (end <= at + .001f || track.IsPointToPoint && track.Gate(track.GateCount) - at < 12 ||
+            spitter is null && !racer.PrepareFallingPose()) return false;
 
         FlightMount flyer = spitter is not null ? new OlthoiSpitter(assets, spitter)
             : new Gromnatross(assets, GromnieLook(racer == Player ? skinIndex : RivalGromnatrossSkin));
-        float end = route?.End ?? at + BasicFlightDistance;
-        if (track.IsSprint) end = Math.Min(end, track.Length - 2);
-        var flight = new FlightRide(flyer, at, end, racer.Lane,
+        float start = courseFlight ? route!.Value.Start : at;
+        var flight = new FlightRide(flyer, start, end, racer.Lane,
             route?.Height ?? 19, route?.Sweep ?? 0)
         {
-            Position = track.Surface(at, racer.Lane) + Vector3.Up * .4f,
+            Position = courseFlight ? HybridFlightPoint(track, start, end, at, racer.Lane, route!.Value.Height, 0)
+                : track.Surface(at, racer.Lane) + Vector3.Up * .4f,
             Heading = track.Forward(at)
         };
         if (route is { Direct: true } summit)
@@ -162,7 +172,7 @@ public partial class GrandPrix
         {
             charge = lateral = 0;
             drifting = false;
-            Callout(route?.Name ?? (spitter is not null ? "OLTHOI LIFT!" : "GROMNATROSS LIFT!"), 1.45f);
+            if (!quiet) Callout(route?.Name ?? (spitter is not null ? "OLTHOI LIFT!" : "GROMNATROSS LIFT!"), 1.45f);
         }
         return true;
     }
@@ -217,6 +227,7 @@ public partial class GrandPrix
         float before = racer.Distance;
         flight.Age += dt;
         float distance = flight.End - flight.Start;
+        bool courseFlight = track.HasHybridTravel && track.TravelMode(flight.Start + .015f) == TrackTravelMode.Flight;
         // A held throttle carries into neutral cruise. Press it again in the air to dive.
         if (!dive) flight.DiveReady = true;
         float pitchInput = free ? (climb ? 1 : 0) - (dive && flight.DiveReady ? 1 : 0) : 0;
@@ -229,7 +240,9 @@ public partial class GrandPrix
         float bankRange = free ? flight.Direct ? Mathf.Clamp(distance * .075f, 14, 29)
             : flight.Sweep != 0 ? 19 : Mathf.Clamp(track.WidthAt(racer.Distance) * .88f, 5.5f, 15) : 3.1f;
         flight.AirSteer = Mathf.Lerp(flight.AirSteer, steer * bankRange, 1 - Mathf.Exp(-3.2f * dt));
-        Vector3 next = flight.Direct ? SummitPoint(track, flight.Start, flight.End, t, flight.StartLane, flight.Height,
+        Vector3 next = courseFlight
+            ? HybridFlightPoint(track, flight.Start, flight.End, racer.Distance, racer.Lane, flight.Height, flight.AirSteer)
+            : flight.Direct ? SummitPoint(track, flight.Start, flight.End, t, flight.StartLane, flight.Height,
                 flight.AirSteer, flight.CitadelFlyby)
             : FlightPoint(racer.Distance, t, racer.Lane, flight.Height, flight.Sweep, flight.AirSteer);
         float pitchOffset = flight.AirPitch * FlightControlWeight(t);
@@ -258,12 +271,24 @@ public partial class GrandPrix
         // Scenic detours begin and end between the same pair of gates.
         if (!flight.Direct && flight.Sweep == 0)
             RecordGate(racer, track.GroundedRacePoint(previous, before), track.GroundedRacePoint(next, racer.Distance), dt);
-        if (t >= 1 || racer.Finish >= 0)
+        if (t >= 1 || racer.Finish >= 0 && !courseFlight)
         {
             racer.Land();
-            racer.Speed = Math.Min(racer.Speed, DriftSpeedCap);
-            GrantBoost(racer, .55f);
-            if (racer == Player) Callout("BACK IN THE SADDLE", .85f);
+            if (track.HasHybridTravel)
+            {
+                SyncHybridTravel(racer, quiet: true);
+                if (racer.Flight is null)
+                {
+                    if (!racer.UsesJetSki) racer.Speed = Math.Min(racer.Speed, DriftSpeedCap);
+                    if (racer == Player) Callout(racer.UsesJetSki ? "JET SKI LANDING!" : "BACK ON LAND!", .85f);
+                }
+            }
+            else
+            {
+                racer.Speed = Math.Min(racer.Speed, DriftSpeedCap);
+                GrantBoost(racer, .55f);
+                if (racer == Player) Callout("BACK IN THE SADDLE", .85f);
+            }
         }
         racer.Draw(track, dt, true);
     }

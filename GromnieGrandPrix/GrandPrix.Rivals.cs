@@ -42,7 +42,7 @@ public partial class GrandPrix
     }
 
     private int LineSector(float distance) =>
-        (int)((track.IsSprint ? Mathf.Clamp(distance, 0, track.Length) : Mathf.PosMod(distance, track.Length)) / RivalLineMemory.SectorLength);
+        (int)((track.IsPointToPoint ? Mathf.Clamp(distance, 0, track.Length) : Mathf.PosMod(distance, track.Length)) / RivalLineMemory.SectorLength);
 
     private void ObservePlayerLine(bool gas, bool brake)
     {
@@ -100,6 +100,7 @@ public partial class GrandPrix
         foreach (var hazard in roadHazards)
             if (hazard.ActiveUntil > elapsed || hazard.PulseAt - elapsed is > 0 and < 1.25f) Add(hazard.Center, hazard.Radius);
         SenseEncounterObstacles(racer, obstacles);
+        if (track.IsWaterCourse) SenseIslandGolems(racer, obstacles);
         if (track.IsVoid) SenseVoidBattleObstacles(racer, obstacles);
         return obstacles;
     }
@@ -119,7 +120,7 @@ public partial class GrandPrix
         return Mathf.Clamp(natural, -.82f, .82f) * width;
     }
 
-    private float AheadOnCourse(float from, float to) => track.IsSprint ? to - from : Mathf.PosMod(to - from, track.Length);
+    private float AheadOnCourse(float from, float to) => track.IsPointToPoint ? to - from : Mathf.PosMod(to - from, track.Length);
 
     private void PlanRival(MountedRacer racer, RivalDriver driver, int index)
     {
@@ -212,7 +213,7 @@ public partial class GrandPrix
         float curve = track.Curvature(racer.Distance + 3);
         float targetLane = flipped ? -driver.AimLane : driver.AimLane;
         float aim = (targetLane - racer.Lane) * 1.22f - driver.LaneVelocity * .24f;
-        float steer = Mathf.Clamp((aim + curve * 14) / (6.6f * SteeringPace(racer.Speed)), -1, 1);
+        float steer = Mathf.Clamp((aim + curve * 14) / LaneSteeringRate(racer, sliding: false), -1, 1);
         bool sliding = !flipped && !racer.MountUnavailable && !racer.FreeDriving && elapsed >= driver.DriftReady && racer.Speed > 12 &&
             Math.Abs(curve) * driver.Style.Drift > .010f && Math.Abs(steer) > .17f && driver.DriftCharge < 1.05f;
         if (sliding) driver.DriftCharge += dt;

@@ -60,8 +60,13 @@ public partial class GrandPrix
         return KeepCameraAboveRoad(fitted, 1.35f);
     }
 
-    private Vector3 KeepCameraAboveRoad(Vector3 eye, float clearance) =>
-        eye with { Y = Math.Max(eye.Y, track.GroundOrRoadHeight(eye) + clearance) };
+    private Vector3 KeepCameraAboveRoad(Vector3 eye, float clearance)
+    {
+        float floor = track.GroundOrRoadHeight(eye);
+        if (track.WaterCourseLevel is { } water)
+            floor = Math.Max(floor, water + WaveAt(eye, RegattaWaterTime));
+        return eye with { Y = Math.Max(eye.Y, floor + clearance) };
+    }
 
     private void UpdateCheckpointArchVisibility()
     {
@@ -98,10 +103,17 @@ public partial class GrandPrix
                 RaceMountKind.IsinDuleDisc => (.72f, 2.75f),
                 RaceMountKind.CarenziSkates => (.77f, 2.62f),
                 RaceMountKind.Siraluun => (1.06f, 2.63f),
+                RaceMountKind.Turkey => (.86f, 2.32f),
+                RaceMountKind.Tusker or RaceMountKind.SnowTusker => (1.19f, 2.80f),
                 _ => (.38f, 2.68f)
             };
             if (Player.Flight is not null) (ahead, height) = (1.1f, -.42f);
-            Vector3 eye = rider + heading * ahead + Vector3.Up * (height + Player.LeapHeight);
+            if (Player.UsesJetSki)
+            {
+                rider = Player.Root.Position;
+                (ahead, height) = (.38f, 1.68f);
+            }
+            Vector3 eye = rider + heading * ahead + Vector3.Up * (height + (Player.UsesJetSki ? 0 : Player.LeapHeight));
             if (Player.Flight?.Flyer is { SeatsRider: true } flyer)
                 eye = flyer.RiderAnchor.GlobalPosition + heading * .95f + Vector3.Up * 1.15f;
             if (Player.Flight is null)
@@ -117,8 +129,8 @@ public partial class GrandPrix
             float grade = Player.Flight?.Pitch ?? Player.Root.Rotation.X;
             camera.Position = eye;
             bool airborne = Player.Flight is not null;
-            float highSpeed = airborne ? 0 : RoadSpeedCue(Player.Speed);
-            camera.Fov = Mathf.Lerp(camera.Fov, 70 + VisualPace(Player.Speed, airborne) * 6.5f + highSpeed * 3.2f +
+            float highSpeed = airborne ? 0 : RoadSpeedCue(Player.Speed, Player.UsesJetSki);
+            camera.Fov = Mathf.Lerp(camera.Fov, 70 + VisualPace(Player.Speed, airborne, Player.UsesJetSki) * 6.5f + highSpeed * 3.2f +
                 (Player.Boost > 0 ? 4 : 0), weight);
             AimRaceCamera(eye + heading * 16 + Vector3.Up * Mathf.Clamp(grade * 6.4f - .40f, -3f, 3f), weight);
             return;

@@ -60,7 +60,7 @@ public partial class GrandPrix
     private void ResetEncounters()
     {
         raceEncounters.Clear();
-        if (track.IsVoid) return;
+        if (track.IsVoid || track.IsWaterCourse) return;
         // Stable fixtures for the race checks. Each live race rolls its own sites, cast order and directions.
         var random = onlinePlan is { } plan ? new Random(plan.Seed ^ 3497) : testMode ? new Random(3497 + activeTown) : Random.Shared;
         int count = Mathf.Clamp(Mathf.RoundToInt(track.Length / 485), 2, 13);

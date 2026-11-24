@@ -11,7 +11,9 @@ public partial class GrandPrix
         {
             [VoidCourseId] = (VoidCourseName, "23.1 km total  /  Singularity flyover"),
             [VoidFootworkCourseId] = ("Bael’Zharon’s Footwork", "Close passes around Bael’Zharon’s legs"),
-            [VoidAerbaxCourseId] = ("Aerbax’s Orbit", "Low circuit around Aerbax’s dais")
+            [VoidAerbaxCourseId] = ("Aerbax’s Orbit", "Low circuit around Aerbax’s dais"),
+            [JesterCourseId] = (JesterCourseName, "Three laps through the looking glass"),
+            [KaleidoscopeCourseId] = (KaleidoscopeCourseName, "Three laps inside a rotating prism")
         };
     private const float VoidSideStageScale = 1.7f;
     private static readonly Vector3 VoidAerbaxPosition = new(-505, 35, -84);
@@ -24,6 +26,8 @@ public partial class GrandPrix
 
     private static BogCircuit CreateVoidCircuit(int id)
     {
+        if (id == JesterCourseId) return CreateJesterCircuit();
+        if (id == KaleidoscopeCourseId) return CreateKaleidoscopeCircuit();
         Vector3[] points = id switch
         {
             VoidFootworkCourseId => VoidFootworkPoints(),

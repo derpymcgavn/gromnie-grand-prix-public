@@ -22,6 +22,9 @@ public partial class GrandPrix
 
     private string CourseName(int id)
     {
+        if (id == DismountCourseId) return DismountCourseName;
+        if (id == IslandWaterCourseId) return IslandWaterCourseName;
+        if (SnowboardCourses.TryGetValue(id, out var snowboardName)) return snowboardName;
         if (VoidCourses.TryGetValue(id, out var voidCourse)) return voidCourse.Name;
         if (CustomCourse(id) is { } custom) return custom.Name;
         if (spanSprint?.Id == id) return spanSprint.Name;
@@ -95,7 +98,10 @@ public partial class GrandPrix
     }
 
     private bool TestOriginalCourse => OS.GetCmdlineUserArgs().Contains("--smoke-test");
-    private bool HasCourse(int id) => VoidCourses.ContainsKey(id) || spanSprint?.Id == id || mediumRoutes.ContainsKey(id) || xlRoutes.ContainsKey(id) ||
+    private bool HasCourse(int id) => (id == DismountCourseId && DismountCourseAvailable) ||
+        (id == IslandWaterCourseId && IslandWaterCourseAvailable) ||
+        SnowboardCourseAvailable(id) ||
+        VoidCourses.ContainsKey(id) || spanSprint?.Id == id || mediumRoutes.ContainsKey(id) || xlRoutes.ContainsKey(id) ||
         ridgeCircuits.ContainsKey(id) || landmarkCircuits.ContainsKey(id) || CustomCourse(id) is not null;
 
     private void ChooseCourse(int id)
@@ -112,14 +118,17 @@ public partial class GrandPrix
     private bool PrepareRaceCourse()
     {
         if (selectedTown == 0 && !testMode) return false;
+        if (SnowboardCourses.ContainsKey(selectedTown) && !SnowboardCourseAvailable(selectedTown)) return false;
         var custom = CustomCourse(selectedTown);
-        if (activeTown == selectedTown && ReferenceEquals(activeCustomCourse, custom) &&
-            (!track.IsVoid || VoidBattleIsReady())) return true;
+        if (activeTown == selectedTown && ReferenceEquals(activeCustomCourse, custom) && CurrentCourseReady()) return true;
         BogCircuit nextTrack = muckTrack;
         Node3D nextScene = muckCourse;
         if (selectedTown != 0)
         {
             bool isVoid = VoidCourses.ContainsKey(selectedTown);
+            bool isDismount = selectedTown == DismountCourseId;
+            bool isIslandWater = selectedTown == IslandWaterCourseId;
+            bool isSnowboard = SnowboardCourses.ContainsKey(selectedTown);
             XlRoute? xl = xlRoutes.GetValueOrDefault(selectedTown);
             RidgeCircuit? ridge = ridgeCircuits.GetValueOrDefault(selectedTown);
             LandmarkCircuit? landmarks = landmarkCircuits.GetValueOrDefault(selectedTown);
@@ -132,10 +141,15 @@ public partial class GrandPrix
             AddChild(nextScene);
             try
             {
-                if (isVoid)
+                if (isIslandWater) nextTrack = BuildIslandWaterCourse(nextScene);
+                else if (isSnowboard) nextTrack = BuildSnowboardCourse(nextScene, selectedTown);
+                else if (isDismount) nextTrack = BuildDismountCourse(nextScene);
+                else if (isVoid)
                 {
                     nextTrack = CreateVoidCircuit(selectedTown);
-                    BuildVoidCourse(nextScene, nextTrack, selectedTown != VoidCourseId);
+                    if (nextTrack.IsJester) BuildJesterCourse(nextScene, nextTrack);
+                    else if (nextTrack.IsKaleidoscope) BuildKaleidoscopeCourse(nextScene, nextTrack);
+                    else BuildVoidCourse(nextScene, nextTrack, selectedTown != VoidCourseId);
                 }
                 else
                 {
@@ -202,16 +216,22 @@ public partial class GrandPrix
                     material.SetShaderParameter("course_extent", land.WorldBounds.Size);
                     material.SetShaderParameter("course_mask", mask);
                     nextTrack.BuildGradedRoad(nextScene, PackedRoadMaterial(land, mask));
-                    nextTrack.BuildTownMarkers(nextScene);
+                    if (nextTrack.TravelMode(BogCircuit.Grid) == TrackTravelMode.Ground) nextTrack.BuildTownMarkers(nextScene);
+                    if (nextTrack.HasHybridTravel) BuildHybridTravelMarkers(nextScene, nextTrack);
+                    if (nextTrack.HasHybridTravel && nextTrack.WaterCourseLevel is { } water)
+                        BuildIslandWater(nextScene, land, water, nativeWaterOnly: true);
                 }
             }
             catch (Exception error)
             {
-                if (nextTrack.IsCustom || nextTrack.IsVoid) nextTrack.Curve.Dispose();
-                if (isVoid) ClearVoidCourse();
+                if (nextTrack.IsCustom || nextTrack.IsVoid || nextTrack.IsDismountSprint || nextTrack.IsWaterCourse || nextTrack.IsSnowboardCourse)
+                    nextTrack.Curve.Dispose();
+                if (selectedTown == JesterCourseId) ClearJesterCourse();
+                else if (selectedTown == KaleidoscopeCourseId) ClearKaleidoscopeCourse();
+                else if (isVoid) ClearVoidCourse();
                 RemoveChild(nextScene);
                 nextScene.QueueFree();
-                courseProblem = (custom is not null || isVoid) && error is InvalidDataException
+                courseProblem = (custom is not null || isVoid || isDismount || isIslandWater || isSnowboard) && error is InvalidDataException
                     ? error.Message : $"Couldn't load {name}. Pick another course.";
                 GD.PushWarning(error.Message);
                 UpdateStableLabels();
@@ -232,15 +252,26 @@ public partial class GrandPrix
             RemoveChild(course);
             course.QueueFree();
         }
-        if (track.IsCustom || track.IsVoid) track.Curve.Dispose();
+        if (track.IsCustom || track.IsVoid || track.IsDismountSprint || track.IsWaterCourse || track.IsSnowboardCourse)
+            track.Curve.Dispose();
         course = nextScene;
         track = nextTrack;
-        if (!track.IsVoid) ClearVoidCourse();
+        if (!track.IsJester) ClearJesterCourse();
+        if (!track.IsKaleidoscope) ClearKaleidoscopeCourse();
+        if (!track.IsVoidBattle) ClearVoidCourse();
         activeTown = selectedTown;
         activeCustomCourse = custom;
         BuildCourseItems();
         return true;
     }
+
+    private bool CurrentCourseReady() => track switch
+    {
+        { IsJester: true } => JesterCourseReady(),
+        { IsKaleidoscope: true } => KaleidoscopeCourseReady(),
+        { IsVoidBattle: true } => VoidBattleIsReady(),
+        _ => true
+    };
 
     private ShaderMaterial PackedRoadMaterial(AcLandArena land, Texture2D mask)
     {
@@ -280,7 +311,7 @@ public partial class GrandPrix
                 margin = Math.Max(margin, radius * scale);
             }
             return distance > width + 3.1f + margin;
-        });
+        }, visualWaterLevel: route.HasHybridTravel ? route.WaterCourseLevel : null, nativeWaterOnly: route.HasHybridTravel);
     }
     private void PlanTownRoutes(string folder, string output, bool resume, bool verify, int? preferredTour)
     {

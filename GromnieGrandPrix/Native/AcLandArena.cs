@@ -178,7 +178,8 @@ public sealed partial class AcLandArena
         foreach (var pair in fallback) chosen.TryAdd(pair.Key, pair.Value);
         return chosen.OrderBy(p => p.Key == "grass" ? 0 : p.Key == "snow" ? 1 : 2).Select(p => p.Value).ToArray();
     }
-    public void Build(Node3D root, AcAssets assets, DatArchive cells, Func<Vector2, float, uint, bool>? keepNatural = null)
+    public void Build(Node3D root, AcAssets assets, DatArchive cells, Func<Vector2, float, uint, bool>? keepNatural = null,
+        Func<AcWorldData.Block, bool>? renderBlock = null, float? visualWaterLevel = null, bool nativeWaterOnly = false)
     {
         terrainRenderer=AcTerrainRenderer.For(assets,Region);BuildTerrainNormals();
         var player=assets.Setup(AcCatalog.Player.Setup);
@@ -187,8 +188,9 @@ public sealed partial class AcLandArena
         stepHeight=Math.Clamp(player.StepUpHeight,.05f,.6f);
         foreach(var block in Blocks.Values.OrderBy(b=>b.Id==Block.Id?0:1).ThenBy(b=>b.Id))
         {
+            if (renderBlock is not null && !renderBlock(block)) continue;
             var chunk=new Node3D{Name=$"Landblock_{block.Id>>16:X4}"};root.AddChild(chunk);
-            BuildBlock(chunk,assets,cells,block,keepNatural);
+            BuildBlock(chunk,assets,cells,block,keepNatural,visualWaterLevel,nativeWaterOnly);
         }
     }
     private Vector3 Offset(AcWorldData.Block block)=>new(((int)(block.Id>>24)-(int)(Block.Id>>24))*BlockSize,0,-((int)((block.Id>>16)&255)-(int)((Block.Id>>16)&255))*BlockSize);
@@ -215,7 +217,8 @@ public sealed partial class AcLandArena
             }
         }
     }
-    private void BuildBlock(Node3D root,AcAssets assets,DatArchive cells,AcWorldData.Block block, Func<Vector2, float, uint, bool>? keepNatural)
+    private void BuildBlock(Node3D root,AcAssets assets,DatArchive cells,AcWorldData.Block block,
+        Func<Vector2, float, uint, bool>? keepNatural, float? visualWaterLevel, bool nativeWaterOnly)
     {
         var tool=new SurfaceTool();tool.Begin(Mesh.PrimitiveType.Triangles);
         for(int channel=0;channel<4;channel++)tool.SetCustomFormat(channel,SurfaceTool.CustomFormat.RgbaFloat);
@@ -227,7 +230,12 @@ public sealed partial class AcLandArena
             {
                 // Reverse the native upward-cross-product winding for Godot.
                 int v=triangle[i/3*3+(i%3==0?0:3-i%3)],vx=v/9,vy=v%9;var key=VertexKey(block,v);
-                tool.SetNormal(terrainNormals[key].Normalized());tool.SetUV(new(key.X,key.Y));tool.SetUV2(new(vx-x,1-(vy-y)));tool.AddVertex(TerrainPoint(block,v));
+                Vector3 point = TerrainPoint(block, v);
+                // DAT ocean tiles can sit at mean sea level. Keep the rendered bed below the wave troughs.
+                if (visualWaterLevel is { } water && point.Y <= water &&
+                    (!nativeWaterOnly || Region.Terrains[(block.Terrain[v] >> 2) & 31].Name.Contains("Water", StringComparison.OrdinalIgnoreCase)))
+                    point.Y = Math.Min(point.Y, water - 1.25f);
+                tool.SetNormal(terrainNormals[key].Normalized());tool.SetUV(new(key.X,key.Y));tool.SetUV2(new(vx-x,1-(vy-y)));tool.AddVertex(point);
             }
             Physics.Add(new[]{new ProjectileCollision.Triangle(Numeric(TerrainPoint(block,triangle[0])),Numeric(TerrainPoint(block,triangle[1])),Numeric(TerrainPoint(block,triangle[2]))),new ProjectileCollision.Triangle(Numeric(TerrainPoint(block,triangle[3])),Numeric(TerrainPoint(block,triangle[4])),Numeric(TerrainPoint(block,triangle[5])))},"terrain");
         }

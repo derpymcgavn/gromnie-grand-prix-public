@@ -3,6 +3,9 @@ using Godot;
 public partial class GrandPrix
 {
     private RaceItem[] pickupItems = [];
+    private RaceItem[] footPickupItems = [];
+    private RaceItem[] waterPickupItems = [];
+    private StandardMaterial3D[]? regattaPickupColors;
     private const float PickupCycleSeconds = 1.18f;
     private const float PickupAnimationRangeSquared = 138 * 138;
     private readonly List<RacePickup> pickups = [];
@@ -43,6 +46,12 @@ public partial class GrandPrix
         };
     }
 
+    private static bool IsMountedPickup(RaceItem item) =>
+        item is RaceItem.Pepper or RaceItem.Gromnatross or RaceItem.OlthoiLift or RaceItem.TuskerMight;
+
+    private static bool IslandWaterPickup(RaceItem item) =>
+        item is not (RaceItem.Gromnatross or RaceItem.OlthoiLift or RaceItem.TuskerMight or RaceItem.ZefirHex);
+
     private void BuildPickupRows()
     {
         pickupItems =
@@ -54,12 +63,25 @@ public partial class GrandPrix
             RaceItem.UlgrimFolly,
             .. creation.OlthoiSpitter is null ? [] : new[] { RaceItem.OlthoiLift }
         ];
+        if (track.IsWaterCourse) pickupItems = pickupItems.Where(IslandWaterPickup).ToArray();
+        waterPickupItems = track.HasWaterSections ? pickupItems.Where(IslandWaterPickup).ToArray() : [];
+        regattaPickupColors = null;
+        if (track.HasWaterSections && RegattaPlateTexture() is { } plate)
+            regattaPickupColors = pickupColors.Select(material =>
+            {
+                var textured = (StandardMaterial3D)material.Duplicate();
+                textured.AlbedoTexture = plate;
+                return textured;
+            }).ToArray();
+        footPickupItems = track.IsDismountSprint ? pickupItems.Where(item => !IsMountedPickup(item)).ToArray() : [];
         pickups.Clear();
         int rows = track.IsRegional ? Mathf.CeilToInt(track.Length / 225) : 3;
         for (int row = 0; row < rows; row++)
         {
             float at = BogCircuit.Grid + (track.IsXL ? 105 : track.IsMedium ? 86 : 24) + row * track.Length / rows;
-            if (track.IsSpan(at) || track.IsSprint && at >= track.Gate(track.GateCount) - 25) continue;
+            if (track.TravelMode(at) == TrackTravelMode.Flight) continue;
+            if (track.IsSpan(at) || track.IsPointToPoint && at >= track.Gate(track.GateCount) - 25 ||
+                track.IsDismountSprint && Math.Abs(at - track.DismountLine) < 24) continue;
             for (int column = -1; column <= 1; column++)
             {
                 float lane = column * track.WidthAt(at) * .57f;
@@ -92,13 +114,19 @@ public partial class GrandPrix
         bool checkRange = !refreshAll && (track.IsVoid || YanshiPerformanceProfile);
         Vector3 eye = checkRange ? camera.Position : Vector3.Zero;
         Vector3? rabbitEye = checkRange && rabbitCameraPanel.Visible ? rabbitCamera.Position : null;
+        Vector3? regattaEye = track.HasWaterSections && racers.Count > localRacerIndex ? Player.CoursePosition(track) : null;
+        float waterTime = RegattaWaterTime;
         foreach (var pickup in pickups)
         {
             pickup.SetAvailable(time >= pickup.ReadyAt);
             if (!pickup.Available) continue;
+            bool water = track.HasWaterSections && track.TravelMode(pickup.Distance) == TrackTravelMode.JetSki;
+            if (water && regattaEye is { } ski && pickup.Anchor.DistanceSquaredTo(ski) < PickupAnimationRangeSquared)
+                pickup.Node.Position = pickup.Anchor + Vector3.Up * WaveAt(pickup.Anchor, waterTime);
 
             float phase = time / PickupCycleSeconds + pickup.Index * 1.37f;
-            var item = pickupItems[Mathf.FloorToInt(phase) % pickupItems.Length];
+            var items = water ? waterPickupItems : pickup.Distance >= track.DismountLine ? footPickupItems : pickupItems;
+            var item = items[Mathf.FloorToInt(phase) % items.Length];
             pickup.Displayed = item;
             // Item selection follows race time even when the camera is too far away to see its icon.
             if (checkRange && pickup.Anchor.DistanceSquaredTo(eye) > PickupAnimationRangeSquared &&
@@ -110,7 +138,7 @@ public partial class GrandPrix
                 var texture = ItemIcon(item);
                 pickup.Icon.Texture = texture;
                 pickup.Icon.PixelSize = 1.42f / (texture?.GetWidth() ?? 1);
-                pickup.Halo.MaterialOverride = pickupColors[(int)item - 1];
+                pickup.Halo.MaterialOverride = (water ? regattaPickupColors ?? pickupColors : pickupColors)[(int)item - 1];
             }
 
             float beat = phase - Mathf.Floor(phase);

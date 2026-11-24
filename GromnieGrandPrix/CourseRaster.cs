@@ -4,22 +4,28 @@ using DerethSurvivors;
 internal static class CourseRaster
 {
     public static float[] SquaredDistances(BogCircuit track, Vector2 origin, Vector2 extent, int size, float radius) =>
-        Rasterize(track, origin, extent, size, radius, roadEdges: false);
+        Rasterize(track, origin, extent, size, radius, roadEdges: false, track.Length);
 
-    private static float[] Rasterize(BogCircuit track, Vector2 origin, Vector2 extent, int size, float radius, bool roadEdges)
+    private static float[] Rasterize(BogCircuit track, Vector2 origin, Vector2 extent, int size, float radius, bool roadEdges, float length,
+        bool drivewayOnly = false)
     {
         var distances = new float[size * size];
         Array.Fill(distances, roadEdges ? radius - track.HalfWidth : radius * radius);
         Vector2 pixel = extent / size;
-        int count = Mathf.CeilToInt(track.Length / 1.1f);
+        int count = Mathf.CeilToInt(length / 1.1f);
         Vector2 a = MuckwaterLayout.Flat(track.Curve.SampleBaked(0, true));
+        bool cutEnd = length < track.Length;
+        Vector2 end = cutEnd ? MuckwaterLayout.Flat(track.Curve.SampleBaked(length, true)) : default;
+        Vector2 endForward = cutEnd ? MuckwaterLayout.Flat(track.Forward(length)) : default;
         float beforeWidth = track.WidthAt(0);
         for (int sample = 1; sample <= count; sample++)
         {
-            float distance = sample * track.Length / count;
+            float distance = sample * length / count;
             Vector2 b = MuckwaterLayout.Flat(track.Curve.SampleBaked(distance, true));
             float width = roadEdges ? track.WidthAt(distance) : beforeWidth;
-            if (roadEdges && track.SpanDeck((sample - .5f) * track.Length / count) is not null)
+            float midpoint = (sample - .5f) * length / count;
+            if ((roadEdges && track.SpanDeck(midpoint) is not null) ||
+                (drivewayOnly && track.TravelMode(midpoint) != TrackTravelMode.Ground))
             {
                 a = b;
                 beforeWidth = width;
@@ -29,6 +35,7 @@ internal static class CourseRaster
             float lengthSquared = delta.LengthSquared();
             if (lengthSquared <= .0001f) continue;
             Vector2 pad = Vector2.One * (roadEdges ? radius - track.HalfWidth + Math.Max(beforeWidth, width) : radius);
+            bool nearCut = cutEnd && distance > length - radius * 2;
             Vector2 min = (a.Min(b) - pad - origin) / pixel;
             Vector2 max = (a.Max(b) + pad - origin) / pixel;
             int left = Math.Max(0, Mathf.FloorToInt(min.X)), right = Math.Min(size - 1, Mathf.CeilToInt(max.X));
@@ -37,6 +44,7 @@ internal static class CourseRaster
                 for (int x = left; x <= right; x++)
                 {
                     Vector2 point = origin + new Vector2(x + .5f, z + .5f) * pixel;
+                    if (nearCut && (point - end).Dot(endForward) > 0) continue;
                     float t = Mathf.Clamp((point - a).Dot(delta) / lengthSquared, 0, 1);
                     int texel = z * size + x;
                     float squared = point.DistanceSquaredTo(a + delta * t);
@@ -54,7 +62,8 @@ internal static class CourseRaster
         float width = track.HalfWidth;
         Vector2 origin = track.NativeBounds.Position, extent = track.NativeBounds.Size;
         int size = track.IsSprint ? 2304 : Mathf.Clamp(Mathf.RoundToInt(extent.X * 1.25f), 256, 1792);
-        var distances = Rasterize(track, origin, extent, size, width + 8.2f, roadEdges: track.IsSprint);
+        var distances = Rasterize(track, origin, extent, size, width + 8.2f, roadEdges: track.IsSprint,
+            Math.Min(track.Length, track.DismountLine), drivewayOnly: track.HasHybridTravel);
         Vector2 pixel = extent / size;
         var rgba = new byte[distances.Length * 4];
         for (int i = 0; i < distances.Length; i++)

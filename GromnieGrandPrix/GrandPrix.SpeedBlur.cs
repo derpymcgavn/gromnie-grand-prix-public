@@ -22,9 +22,9 @@ public partial class GrandPrix
     {
         if (!raceSettings.SpeedBlur) return;
         bool airborne = Player.Flight is not null, boosting = Player.Boost > 0;
-        float pace = VisualPace(Player.Speed, airborne);
-        float highSpeed = airborne ? 0 : RoadSpeedCue(Player.Speed);
-        float target = SpeedBlurStrength(Player.Speed, boosting, airborne);
+        float pace = VisualPace(Player.Speed, airborne, Player.UsesJetSki);
+        float highSpeed = airborne ? 0 : RoadSpeedCue(Player.Speed, Player.UsesJetSki);
+        float target = SpeedBlurStrength(Player.Speed, boosting, airborne, Player.UsesJetSki);
         float wind = (boosting ? .38f + .62f * pace : pace * pace * .23f + highSpeed * .17f) * (airborne ? .46f : 1);
         float weight = immediate ? 1 : 1 - Mathf.Exp(-(target > blurStrength ? 12 : 6) * dt);
         blurStrength = Mathf.Lerp(blurStrength, target, weight);
@@ -51,14 +51,15 @@ public partial class GrandPrix
         speedBlurMaterial.SetShaderParameter("vanishing_point", blurCenter);
     }
 
-    private static float VisualPace(float speed, bool airborne) => airborne
+    private static float VisualPace(float speed, bool airborne, bool jetSki = false) => airborne
         ? Mathf.SmoothStep(9, 53, speed)
-        : .58f * Mathf.SmoothStep(9, RoadPace, speed) + .42f * RoadSpeedCue(speed);
+        : .58f * Mathf.SmoothStep(9, jetSki ? JetSkiPace : RoadPace, speed) + .42f * RoadSpeedCue(speed, jetSki);
 
-    private static float RoadSpeedCue(float speed) => Mathf.SmoothStep(RoadPace, DriftSpeedCap, speed);
+    private static float RoadSpeedCue(float speed, bool jetSki = false) =>
+        Mathf.SmoothStep(jetSki ? JetSkiPace : RoadPace, jetSki ? JetSkiDriftCap : DriftSpeedCap, speed);
 
-    private static float SpeedBlurStrength(float speed, bool boosting, bool airborne) =>
-        Mathf.Clamp(VisualPace(speed, airborne) * (airborne ? .77f : .60f) + (boosting ? .29f : 0), 0, 1);
+    private static float SpeedBlurStrength(float speed, bool boosting, bool airborne, bool jetSki = false) =>
+        Mathf.Clamp(VisualPace(speed, airborne, jetSki) * (airborne ? .77f : .60f) + (boosting ? .29f : 0), 0, 1);
 
     private void ClearSpeedBlur()
     {

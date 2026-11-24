@@ -37,6 +37,14 @@ public partial class GrandPrix : Node3D
         AddChild(garage);
         AddChild(camera);
         var args = OS.GetCmdlineUserArgs();
+        var browserOutput = args.FirstOrDefault(arg => arg.StartsWith("--export-yanshi-web=", StringComparison.Ordinal));
+        if (browserOutput is not null)
+        {
+            string browserDatFolder = args.FirstOrDefault(arg => arg.StartsWith("--dat=", StringComparison.Ordinal))?[6..]
+                ?? System.Environment.GetEnvironmentVariable("ASHERONS_CALL_DAT") ?? "C:/Turbine/Asheron's Call";
+            ExportYanshiForBrowser(browserDatFolder, browserOutput["--export-yanshi-web=".Length..]);
+            return;
+        }
         var mediumOutput = args.FirstOrDefault(arg => arg.StartsWith("--plan-medium-courses=", StringComparison.Ordinal))?[22..];
         if (mediumOutput is not null)
         {
@@ -189,7 +197,9 @@ public partial class GrandPrix : Node3D
     private void StartRace()
     {
         if (!PrepareRaceCourse()) return;
-        if (track.IsVoid) ApplyVoidAtmosphere();
+        if (track.IsJester) ApplyJesterAtmosphere();
+        else if (track.IsKaleidoscope) ApplyKaleidoscopeAtmosphere();
+        else if (track.IsVoid) ApplyVoidAtmosphere();
         else ApplyWeather(WeatherPresets[onlinePlan?.Weather ?? (testMode ? 0 : RollRaceWeather())]);
         courseUi.Hide();
         UpdateRaceCourseLabels();
@@ -199,7 +209,8 @@ public partial class GrandPrix : Node3D
         RaceMountKind[] order = [RaceMountKind.Grievver, RaceMountKind.Asheron, RaceMountKind.Mukkir,
             RaceMountKind.Cow, RaceMountKind.Shreth, RaceMountKind.Chicken, RaceMountKind.Mattekar,
             RaceMountKind.Rabbit, RaceMountKind.Reedshark, RaceMountKind.Auroch, RaceMountKind.Gromnie, RaceMountKind.BaelZharon,
-            RaceMountKind.FestivusCarpet, RaceMountKind.IsinDuleDisc, RaceMountKind.CarenziSkates, RaceMountKind.Siraluun];
+            RaceMountKind.FestivusCarpet, RaceMountKind.IsinDuleDisc, RaceMountKind.CarenziSkates, RaceMountKind.Siraluun,
+            RaceMountKind.Turkey, RaceMountKind.Tusker, RaceMountKind.SnowTusker];
         var rivals = order.Where(mount => mount != selectedMount).ToArray();
         for (int i = 0; i < RacerCount; i++)
         {
@@ -210,8 +221,11 @@ public partial class GrandPrix : Node3D
             var racer = onlinePlan is { } plan ? CreateOnlineRacer(plan.Slots[i].Loadout) :
                 new MountedRacer(assets, mount, GromnieLook(palette[i]), look,
                     i == 0 ? aceRider?.Name ?? names[i] : names[i], RaceWeapon.All[weapon], RaceShield.All[shield],
-                    i == 0 ? SelectedMountColor : palette[i] % RaceMount.ColorsFor(mount.Kind).Count);
+                    i == 0 ? SelectedMountColor : track.IsWaterCourse ? i : palette[i] % RaceMount.ColorsFor(mount.Kind).Count,
+                    jetSki: track.IsWaterCourse, supportsJetSki: track.HasWaterSections);
             course.AddChild(racer.Root);
+            if (racer.JetSkiVisual is { } ski) AddIslandReflectionLayers(ski);
+            if (track.IsSnowboardCourse) racer.EnableSnowboard(assets, i);
             if (track.IsSprint) AddRiverReflectionLayer(racer.Root);
             racers.Add(racer);
         }
@@ -227,7 +241,7 @@ public partial class GrandPrix : Node3D
         if (AndroidGraphics) ApplyRaceUpscaling(GetViewport());
         SetRaceCamera(1);
         UpdateSpanReflection();
-        if (track.IsVoid) WarmVoidRaceGraphics();
+        if (track.IsVoidBattle) WarmVoidRaceGraphics();
         if (AndroidGraphics) GD.Print($"Android race ready: {track.Name}.");
         if (YanshiPerformanceProfile)
             GD.Print($"Yanshi Android profile: scale {GetViewport().Scaling3DScale:P0}, cap {Engine.MaxFps} FPS.");
@@ -265,6 +279,9 @@ public partial class GrandPrix : Node3D
         if (AndroidGraphics) ApplyRaceUpscaling(GetViewport());
         ResetVoidProgress();
         StopSpanReflection();
+        StopIslandWaterReflection();
+        ResetRegattaFluid();
+        StopJesterReflection();
         ApplyWeather(WeatherPresets[0]);
         raceAudio?.Clear();
         ClearSpeedBlur();
@@ -288,7 +305,14 @@ public partial class GrandPrix : Node3D
         camera.Projection = Camera3D.ProjectionType.Perspective;
         camera.Near = .1f;
         tiltShiftOverlay.Hide();
-        float lift = selectedMount switch { RaceMountKind.Asheron => .43f, RaceMountKind.BaelZharon => .59f, RaceMountKind.Siraluun => .22f, _ => 0 };
+        float lift = selectedMount switch
+        {
+            RaceMountKind.Asheron => .43f,
+            RaceMountKind.BaelZharon => .59f,
+            RaceMountKind.Tusker or RaceMountKind.SnowTusker => .34f,
+            RaceMountKind.Siraluun => .22f,
+            _ => 0
+        };
         var target = garage.Position + new Vector3(-1.77f, 1.43f + lift, -.12f);
         camera.Position = garage.Position + new Vector3(0, 2.87f + lift, 8.05f + lift);
         camera.Fov = 48;
@@ -297,14 +321,22 @@ public partial class GrandPrix : Node3D
 
     private void SetRaceCamera(float weight)
     {
+        if (jesterCameraSnap)
+        {
+            weight = 1;
+            jesterCameraSnap = false;
+        }
         PositionRaceCamera(weight);
+        if (track.HasWaterSections) UpdateIslandWaterReflection();
+        UpdateJesterMirrors();
         UpdateRaceViewUi();
         UpdateCheckpointArchVisibility();
     }
 
     private void PositionRaceCamera(float weight)
     {
-        float viewDistance = track.IsVoid ? 2900 : track.IsCustom ? Mathf.Clamp(track.NativeBounds.Size.X * 1.25f, 470, 2600)
+        float viewDistance = track.IsKaleidoscope ? 550 : track.IsVoid ? 2900 : track.IsWaterCourse ? 1850
+            : track.IsCustom ? Mathf.Clamp(track.NativeBounds.Size.X * 1.25f, 470, 2600)
             : track.IsXL ? 2200 : track.IsSprint ? 1500 : track.IsMedium ? 1850 : 470;
         if (YanshiPerformanceProfile)
             viewDistance = Math.Min(viewDistance, Player.Flight is not null ? 550 : 400);
@@ -315,8 +347,8 @@ public partial class GrandPrix : Node3D
         camera.Near = raceView == RaceView.FirstPerson ? .12f : .1f;
         bool wide = raceView == RaceView.WideChase;
         bool airborne = Player.Flight is not null;
-        float pace = VisualPace(Player.Speed, airborne);
-        float highSpeed = airborne ? 0 : RoadSpeedCue(Player.Speed);
+        float pace = VisualPace(Player.Speed, airborne, Player.UsesJetSki);
+        float highSpeed = airborne ? 0 : RoadSpeedCue(Player.Speed, Player.UsesJetSki);
         if (highSpeed > 0 && weight < 1)
             weight = Mathf.Lerp(weight, 1 - MathF.Pow(1 - weight, 2.35f), highSpeed);
         if (raceView is not (RaceView.Chase or RaceView.WideChase))
@@ -362,7 +394,7 @@ public partial class GrandPrix : Node3D
         }
         Vector3 target = focusPoint + lead + Vector3.Up * 1.35f;
         float summitReveal = 0;
-        if (track.IsVoid)
+        if (track.IsVoidBattle)
         {
             Vector3 inward = new Vector3(-focusPoint.X, 0, -focusPoint.Z).Normalized();
             summitReveal = Mathf.SmoothStep(.28f, .65f, ahead.Dot(inward));
@@ -523,6 +555,7 @@ public partial class GrandPrix : Node3D
         if (what == NotificationWMCloseRequest)
         {
             FlushRaceSettings();
+            StopJesterReflection();
             StopSoundtrack();
         }
         if (what != NotificationApplicationFocusOut || testMode) return;
@@ -558,7 +591,7 @@ public partial class GrandPrix : Node3D
         RaceMountKind Mount = RaceMountKind.Gromnie, int MediumLayout = 0,
         Dictionary<int, Dictionary<int, RivalLineMemory.Line>>? RivalLines = null,
         AceRiderSnapshot? AceRider = null, string? AceEndpoint = null, int Shield = 0, int SiraluunSkin = 0,
-        Dictionary<RaceMountKind, int>? MountColors = null);
+        Dictionary<RaceMountKind, int>? MountColors = null, int SnowboardLayout = 0);
 
     private void RestoreGarage()
     {
@@ -577,6 +610,7 @@ public partial class GrandPrix : Node3D
                     if (course >= 0 && float.IsFinite(time) && time > 0)
                     {
                         bool sameLayout = save.CourseLayout == CourseLayoutVersion && course > 0 && !IsPreviousVoidCourse(course) &&
+                            (!SnowboardCourses.ContainsKey(course) || save.SnowboardLayout == SnowboardLayoutVersion) &&
                             (course >= XlCourseOffset ? save.XlLayout == XlLayoutVersion : save.MediumLayout == MediumLayoutVersion);
                         var destination = sameLayout ? bestByCourse : legacyCourseBests;
                         destination[course] = time;
@@ -584,6 +618,7 @@ public partial class GrandPrix : Node3D
             if (float.IsFinite(save.Best) && save.Best > 0) legacyCourseBests.TryAdd(0, save.Best);
             if (save.CourseLayout == CourseLayoutVersion)
                 rivalLines.Restore(save.RivalLines, id => !IsPreviousVoidCourse(id) &&
+                    (!SnowboardCourses.ContainsKey(id) || save.SnowboardLayout == SnowboardLayoutVersion) &&
                     (id >= XlCourseOffset ? save.XlLayout == XlLayoutVersion : save.MediumLayout == MediumLayoutVersion));
             selectedTown = save.Course is { } savedCourse && IsPreviousVoidCourse(savedCourse) ? VoidCourseId : save.Course ?? selectedTown;
             weaponIndex = Mathf.Clamp(save.Weapon, 0, RaceWeapon.All.Length - 1);
@@ -613,7 +648,7 @@ public partial class GrandPrix : Node3D
                 var save = new GarageSave(skinIndex, appearance, bestByCourse.GetValueOrDefault(0, -1), datFolder,
                     editorPreview is null ? selectedTown : editorReturnCourse, bestByCourse, weaponIndex, CourseLayoutVersion, legacyCourseBests, XlLayoutVersion, selectedMount,
                     MediumLayoutVersion, rivalLines.SavedLines, aceRider, aceEndpoint, shieldIndex,
-                    MountColorFor(RaceMountKind.Siraluun), mountColors);
+                    MountColorFor(RaceMountKind.Siraluun), mountColors, SnowboardLayoutVersion);
                 file.StoreString(JsonSerializer.Serialize(save));
             }
             System.IO.File.Move(ProjectSettings.GlobalizePath(temp), ProjectSettings.GlobalizePath(SaveFile), overwrite: true);
@@ -629,7 +664,8 @@ public partial class GrandPrix : Node3D
         if (loaded && rivalLines.Dirty) SaveGarage();
         raceSocket?.Close();
         raceSocket?.Dispose();
-        if (track?.IsCustom == true) track.Curve.Dispose();
+        if (track is { } active && (active.IsCustom || active.IsDismountSprint || active.IsWaterCourse || active.IsSnowboardCourse))
+            active.Curve.Dispose();
         assets?.Dispose();
         archive?.Dispose();
         townCells?.Dispose();

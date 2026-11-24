@@ -7,6 +7,36 @@ public partial class GrandPrix
     {
         try
         {
+            if (OS.GetCmdlineUserArgs().Contains("--hybrid-only"))
+            {
+                CheckHybridAndSnowboard();
+                QuitSoundtrackCheck();
+                return;
+            }
+            if (OS.GetCmdlineUserArgs().Contains("--island-only"))
+            {
+                CheckIslandRegatta();
+                QuitSoundtrackCheck();
+                return;
+            }
+            if (OS.GetCmdlineUserArgs().Contains("--dismount-only"))
+            {
+                CheckDismountSprint();
+                QuitSoundtrackCheck();
+                return;
+            }
+            if (OS.GetCmdlineUserArgs().Contains("--kaleidoscope-only"))
+            {
+                CheckKaleidoscopeCourse();
+                QuitSoundtrackCheck();
+                return;
+            }
+            if (OS.GetCmdlineUserArgs().Contains("--jester-only"))
+            {
+                CheckJesterDescent();
+                QuitSoundtrackCheck();
+                return;
+            }
             if (OS.GetCmdlineUserArgs().Contains("--arcade-speed-only"))
             {
                 CheckArcadeSpeed();
@@ -144,7 +174,9 @@ public partial class GrandPrix
             Require(townDestinations.Count == 50 && mediumRoutes.Count == 45, "all outdoor town courses have regional layouts");
             PopulateCoursePicker("");
             var picked = Enumerable.Range(0, courseList.ItemCount).Select(i => courseList.GetItemMetadata(i).AsInt32()).ToArray();
-            Require(spanSprint is not null && picked.Length == 59 + VoidCourses.Count && picked.Contains(spanSprint.Id) && VoidCourses.Keys.All(picked.Contains) &&
+            Require(spanSprint is not null && picked.Length == 59 + VoidCourses.Count +
+                (DismountCourseAvailable ? 1 : 0) + (IslandWaterCourseAvailable ? 1 : 0) &&
+                picked.Contains(spanSprint.Id) && VoidCourses.Keys.All(picked.Contains) &&
                 landmarkCircuits.Keys.All(picked.Contains) && !picked.Contains(0) && !picked.Contains(72),
                 "the Span sprint and the full regional catalog appear in the picker");
                         Require(track.Length > 600 && track.Point(0).DistanceTo(track.Point(track.Length - .01f)) < .1f
@@ -400,6 +432,12 @@ public partial class GrandPrix
             Player.Distance = 34;
             Player.Lane = -.4f;
             int poses = Player.Mount.PoseChanges;
+            var fur = Player.Mount.FindChildren("Tusker Fur *", nameof(MeshInstance3D), true, false)
+                .OfType<MeshInstance3D>().ToArray();
+            bool shouldHaveFur = rig.Kind is RaceMountKind.Tusker or RaceMountKind.SnowTusker;
+            Require(shouldHaveFur ? fur.Length > 0 && fur.All(patch => patch.GetParent() is MeshInstance3D) : fur.Length == 0,
+                $"{rig.Name} has the expected coat attached to native body meshes");
+            Basis[] restingFur = fur.Select(patch => patch.Basis).ToArray();
             bool pawDust = false;
             bool separateStrides = false;
             float saddleUp = 1;
@@ -420,6 +458,9 @@ public partial class GrandPrix
                 highestHover = Math.Max(highestHover, Player.Mount.Position.Y);
             }
             var pace = new Vector3(Player.Distance, Player.Speed, Player.Lane);
+            if (shouldHaveFur)
+                Require(fur.All(patch => patch.Basis.IsFinite()) && fur.Where((patch, index) => patch.Basis != restingFur[index]).Any(),
+                    $"{rig.Name} has a moving coat while sprinting");
             referencePace ??= pace;
             Require(pace.IsEqualApprox(referencePace.Value), $"{rig.Name} matches the other mounts' pace and handling");
             if (rig.Platform == MountPlatform.None)
@@ -1059,6 +1100,30 @@ public partial class GrandPrix
         try
         {
             Directory.CreateDirectory(folder);
+            if (OS.GetCmdlineUserArgs().Contains("--hybrid-only"))
+            {
+                await CaptureHybridAndSnowboard(folder);
+                QuitSoundtrackCheck();
+                return;
+            }
+            if (OS.GetCmdlineUserArgs().Contains("--island-only"))
+            {
+                await CaptureIslandRegatta(folder);
+                QuitSoundtrackCheck();
+                return;
+            }
+            if (OS.GetCmdlineUserArgs().Contains("--kaleidoscope-raster-mirrors"))
+            {
+                await CaptureKaleidoscopeRasterMirrors(folder);
+                QuitSoundtrackCheck();
+                return;
+            }
+            if (OS.GetCmdlineUserArgs().Contains("--dismount-only"))
+            {
+                await CaptureDismountSprint(folder);
+                QuitSoundtrackCheck();
+                return;
+            }
             if (OS.GetCmdlineUserArgs().Contains("--arcade-speed-only"))
             {
                 await CaptureArcadeSpeed(folder, OS.GetCmdlineUserArgs().Contains("--speed-video"));
@@ -1089,6 +1154,19 @@ public partial class GrandPrix
                 var upperDeck = track.Project(new Vector3(-298, 162, 133), 825);
                 SetRabbitCheckGrid(upperDeck.Distance);
                 await CaptureWhiteRabbit(folder);
+                QuitSoundtrackCheck();
+                return;
+            }
+            if (OS.GetCmdlineUserArgs().Contains("--kaleidoscope-only"))
+            {
+                await CaptureKaleidoscopeCourse(folder);
+                QuitSoundtrackCheck();
+                return;
+            }
+            if (OS.GetCmdlineUserArgs().Contains("--jester-only"))
+            {
+                await CaptureJesterDescent(folder);
+                StopJesterReflection();
                 QuitSoundtrackCheck();
                 return;
             }
@@ -1163,6 +1241,12 @@ public partial class GrandPrix
                 UpdateRaceUi();
                 await SaveFrame(Path.Combine(folder, "BaelZharon-Race.png"));
                 GetTree().Quit();
+                return;
+            }
+            if (OS.GetCmdlineUserArgs().Contains("--new-mounts-only"))
+            {
+                await CaptureNewMounts(folder);
+                QuitSoundtrackCheck();
                 return;
             }
             if (OS.GetCmdlineUserArgs().Contains("--ui-fonts-only"))

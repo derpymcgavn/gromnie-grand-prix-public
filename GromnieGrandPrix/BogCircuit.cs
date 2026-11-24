@@ -1,7 +1,9 @@
 using Godot;
 using DerethSurvivors;
 
-public sealed class BogCircuit
+internal enum VoidCircuitStyle { Battle, Jester, Kaleidoscope }
+
+public sealed partial class BogCircuit
 {
     public const float RoadHalf = 14f;
     public const float Grid = 22;
@@ -21,19 +23,30 @@ public sealed class BogCircuit
     public bool IsXL => land?.GridSide >= 8;
     public bool IsMedium => land?.GridSide == 7;
     public bool IsSprint => sprint is not null;
+    internal bool IsDismountSprint { get; }
+    internal bool IsSnowboardCourse { get; }
+    internal float? WaterCourseLevel { get; }
+    internal bool IsWaterCourse { get; }
+    internal bool IsPointToPoint => IsSprint || IsDismountSprint || IsSnowboardCourse;
+    internal float DismountLine => IsDismountSprint ? Length * .5f : float.PositiveInfinity;
     internal bool IsCustom { get; }
     internal bool IsVoid { get; }
+    internal bool IsJester => IsVoid && voidStyle == VoidCircuitStyle.Jester;
+    internal bool IsKaleidoscope => IsVoid && voidStyle == VoidCircuitStyle.Kaleidoscope;
+    internal bool IsVoidBattle => IsVoid && voidStyle == VoidCircuitStyle.Battle;
     internal bool HasGradedRoad => ridgeRoad is not null || IsVoid;
-    public bool IsRegional => IsXL || IsMedium || IsSprint || IsCustom || IsVoid;
+    public bool IsRegional => IsXL || IsMedium || IsPointToPoint || IsCustom || IsVoid || IsWaterCourse;
     public int GridSide => land?.GridSide ?? 0;
-    public int GateCount => IsVoid ? 14 : IsCustom ? Mathf.Clamp(Mathf.CeilToInt(Length / 250), 4, 20)
-        : IsSprint ? 20 : IsXL ? 16 : IsMedium ? 12 : 4;
-    public int Laps => IsVoid ? 5 : IsRegional ? 1 : 3;
+    public int GateCount => IsVoid ? 14 : IsSnowboardCourse ? Mathf.Clamp(Mathf.CeilToInt(Length / 145), 5, 20)
+        : IsCustom ? Mathf.Clamp(Mathf.CeilToInt(Length / 250), 4, 20)
+        : IsWaterCourse ? Mathf.Clamp(Mathf.CeilToInt(Length / 325), 12, 24) : IsSprint ? 20 : IsXL ? 16 : IsMedium ? 12 : 4;
+    public int Laps => IsVoid ? IsVoidBattle ? 5 : 3 : IsRegional ? 1 : 3;
     public Rect2 NativeBounds => land?.WorldBounds ?? default;
     internal float NativeElevationOrigin => land?.ElevationOrigin ?? 0;
     private readonly AcLandArena? land;
     private readonly RidgeRoad? ridgeRoad;
     private readonly VoidRoadSurface? voidRoad;
+    private readonly VoidCircuitStyle voidStyle;
     private readonly VoidFrame[]? voidFrames;
     private readonly float voidLength, voidFrameRate;
     private readonly SpanSprint? sprint;
@@ -47,15 +60,33 @@ public sealed class BogCircuit
     public BogCircuit() : this("Muckwater Circuit", Corners, null, RoadHalf) { }
 
     internal BogCircuit(string name, Vector2[] corners, AcLandArena? land, float halfWidth, bool gradedRoad = false,
-        SpanSprint? sprint = null, bool custom = false, Vector3[]? voidCorners = null)
+        SpanSprint? sprint = null, bool custom = false, Vector3[]? voidCorners = null,
+        VoidCircuitStyle voidStyle = VoidCircuitStyle.Battle, bool dismountSprint = false, float? waterCourseLevel = null,
+        TrackTravelMode[]? modes = null, bool snowboardCourse = false)
     {
         Name = name;
         HalfWidth = halfWidth;
         this.land = land;
         this.sprint = sprint;
+        IsDismountSprint = dismountSprint;
+        IsSnowboardCourse = snowboardCourse;
+        WaterCourseLevel = waterCourseLevel;
+        IsWaterCourse = waterCourseLevel.HasValue;
         IsCustom = custom;
         IsVoid = voidCorners is not null;
-        Curve = voidCorners is null ? MakeSpline(corners, !IsSprint, .35f) : MakeSpline(voidCorners, true, .35f);
+        this.voidStyle = voidStyle;
+        Curve = voidCorners is null ? MakeSpline(corners, !IsPointToPoint, .35f) : MakeSpline(voidCorners, true, .35f);
+        try
+        {
+            ConfigureTravel(modes);
+            if (travelSections.Any(section => section.Mode == TrackTravelMode.JetSki))
+                WaterCourseLevel = InferHybridWaterLevel();
+        }
+        catch
+        {
+            Curve.Dispose();
+            throw;
+        }
         if (IsVoid)
         {
             voidLength = Curve.GetBakedLength();
@@ -77,7 +108,17 @@ public sealed class BogCircuit
             voidFrames = frames;
             voidRoad = new VoidRoadSurface(this);
         }
-        if (gradedRoad) ridgeRoad = new RidgeRoad(this);
+        if (gradedRoad && (travelSections.Length == 0 || travelSections.Any(section => section.Mode == TrackTravelMode.Ground)))
+            ridgeRoad = new RidgeRoad(this);
+        if (IsDismountSprint)
+        {
+            int half = GateCount / 2;
+            float approach = DismountLine - 15;
+            flightGates = Enumerable.Range(0, GateCount + 1).Select(i => i <= half
+                ? Mathf.Lerp(Grid, approach, i / (float)half)
+                : Mathf.Lerp(approach, Length - 8, (i - half) / (float)(GateCount - half))).ToArray();
+        }
+        if (IsSnowboardCourse) flightGates = LocateSnowboardCheckpoints();
         if (sprint is not null)
         {
             spanHigh = sprint.Deck.Max(row => row[1]) - land!.ElevationOrigin;
@@ -143,9 +184,48 @@ public sealed class BogCircuit
             minimum = Math.Min(minimum, TurnRadius(at) - HalfWidth);
         return minimum;
     }
-    public float Gate(int index) => IsSprint ? flightGates![Math.Clamp(index, 0, GateCount)]
+    public float Gate(int index) => IsPointToPoint ? flightGates![Math.Clamp(index, 0, GateCount)]
         : flightGates is null ? Grid + index * Length / GateCount
         : flightGates[index % GateCount] + index / GateCount * Length;
+
+    private float[] LocateSnowboardCheckpoints()
+    {
+        var gates = new float[GateCount + 1];
+        gates[0] = Grid;
+        gates[^1] = Length - 32;
+        float spacing = (gates[^1] - Grid) / GateCount;
+        float search = Math.Min(32, spacing * .28f);
+        for (int i = 1; i < GateCount; i++)
+        {
+            float ideal = Grid + i * spacing;
+            float best = ideal, bestScore = float.MaxValue;
+            for (float offset = -search; offset <= search; offset += 2)
+            {
+                float station = ideal + offset;
+                const float look = 11;
+                float center = Surface(station, 0).Y;
+                float descentIn = (center - Surface(station - look, 0).Y) / look;
+                float descentOut = (Surface(station + look, 0).Y - center) / look;
+                float edge = HalfWidth * .68f;
+                float crossfall = Math.Abs(Surface(station, edge).Y - Surface(station, -edge).Y) / (2 * edge);
+                float turn = Forward(station - look).AngleTo(Forward(station + look));
+                float score = Math.Abs(offset) / search * .14f + Math.Abs(descentIn + descentOut) * .20f +
+                    crossfall * 1.1f + turn * .66f + Math.Max(0, descentIn - descentOut) * .75f;
+                if (score >= bestScore) continue;
+                best = station;
+                bestScore = score;
+            }
+            gates[i] = best;
+        }
+        return gates;
+    }
+
+    internal void ReserveMirrorSector(float entry, float exit)
+    {
+        // A mirror may skip distance, but the two sides must share a checkpoint sector.
+        flightGates = Enumerable.Range(0, GateCount).Select(i => i == GateCount - 1
+            ? exit + 38 : Mathf.Lerp(Grid, entry - 36, i / (GateCount - 2f))).ToArray();
+    }
 
     internal void ReserveFlightSector(float start, float end)
     {
@@ -172,7 +252,7 @@ public sealed class BogCircuit
     {
         if (projectionSamples is null)
         {
-            int count = Math.Max(2, Mathf.CeilToInt(Length / (IsSprint ? 2.25f : .9f)));
+            int count = Math.Max(2, Mathf.CeilToInt(Length / (IsPointToPoint ? 2.25f : .9f)));
             projectionSamples = Enumerable.Range(0, count + 1)
                 .Select(i => FlatPoint(i * Length / count)).ToArray();
         }
@@ -188,7 +268,7 @@ public sealed class BogCircuit
             best = gap;
             distance = (i + t) * Length / (projectionSamples.Length - 1);
         }
-        if (!IsSprint) distance += Mathf.Round((previous - distance) / Length) * Length;
+        if (!IsPointToPoint) distance += Mathf.Round((previous - distance) / Length) * Length;
         return (distance, (position - FlatPoint(distance)).Dot(Right(distance)));
     }
 
@@ -202,8 +282,10 @@ public sealed class BogCircuit
         fraction = -entry / (exit - entry);
         Vector3 crossing = before.Lerp(after, fraction);
         float lane = (crossing - center).Dot(Right(at));
-        float ground = HasGradedRoad ? Surface(at, lane).Y : FreeGround(crossing).Y;
-        return Math.Abs(lane) <= WidthAt(at) + .62f && Math.Abs(crossing.Y - ground) < 2;
+        float ground = HasHybridTravel || HasGradedRoad || IsWaterCourse ? Surface(at, lane).Y : FreeGround(crossing).Y;
+        float height = crossing.Y - ground;
+        return Math.Abs(lane) <= WidthAt(at) + .62f &&
+            (IsSnowboardCourse ? height is > -.9f and < 24 : Math.Abs(height) < 2);
     }
 
     public Vector3 FreeGround(Vector3 point) => land?.Ground(point.X, point.Z)
@@ -212,6 +294,7 @@ public sealed class BogCircuit
     internal float GroundOrRoadHeight(Vector3 point) => RoadHeight(point, FreeGround(point).Y);
     internal float HighestRoadIn(Aabb bounds)
     {
+        if (IsWaterCourse) return WaterCourseLevel!.Value;
         if (voidRoad is not null) return voidRoad.HighestNear(bounds);
         float highest = ridgeRoad?.HighestRoadIn(bounds) ?? float.NegativeInfinity;
         if (sprint is not null && bounds.Position.X <= sprint.East && bounds.End.X >= sprint.West &&
@@ -222,6 +305,11 @@ public sealed class BogCircuit
 
     internal float RoadHeight(Vector3 point, float floor = float.NegativeInfinity)
     {
+        if (WaterCourseLevel is { } water)
+        {
+            if (IsWaterCourse) return Math.Max(water, floor);
+            if (NativeWet(point)) floor = Math.Max(water, floor);
+        }
         if (voidRoad is not null) return Math.Max(floor, voidRoad.HeightAt(point));
         if (sprint is not null && Math.Abs(point.Z - sprint.RiverAxis) <= sprint.WidthAt(point) + .35f &&
             sprint.DeckHeight(point, land!) is { } span)
@@ -242,14 +330,19 @@ public sealed class BogCircuit
 
     internal bool CanStageSpectator(Vector3 at)
     {
-        if (IsVoid) return false;
+        if (IsVoid || IsWaterCourse) return false;
         if (land is not null) return land.ContainsGround(at.X, at.Z) && TownRoutePlanner.Clear(land, at, .62f);
         return Scenery?.DryMove(at + Vector3.Right * .75f, at) ??
             new Rect2(MuckwaterLayout.Origin, MuckwaterLayout.Extent).Grow(-2).HasPoint(new Vector2(at.X, at.Z));
     }
 
-    public bool TryFreeMove(Vector3 start, Vector3 destination, out Vector3 grounded)
+    public bool TryFreeMove(Vector3 start, Vector3 destination, out Vector3 grounded, bool jetSki = false)
     {
+        if ((IsWaterCourse || jetSki) && WaterCourseLevel is { } water)
+        {
+            grounded = destination with { Y = water };
+            return NavigableWater(grounded) && ClearMove(land!.Physics, start, grounded);
+        }
         grounded = FreeGround(destination);
         if (land is null)
             return Scenery?.DryMove(start, grounded) ??
@@ -285,7 +378,7 @@ public sealed class BogCircuit
             var (index, blend) = VoidFrameSample(distance);
             return frames[index].Center.Lerp(frames[index + 1].Center, blend);
         }
-        return Curve.SampleBaked(IsSprint ? Mathf.Clamp(distance, 0, Length) : Mathf.PosMod(distance, Length), true);
+        return Curve.SampleBaked(IsPointToPoint ? Mathf.Clamp(distance, 0, Length) : Mathf.PosMod(distance, Length), true);
     }
     public Vector3 Ground(Vector3 p) => land?.Ground(p.X, p.Z) ?? p;
     public Vector3 Point(float distance) => Surface(distance, 0);
@@ -296,7 +389,7 @@ public sealed class BogCircuit
             var (index, blend) = VoidFrameSample(distance);
             return frames[index].Forward.Lerp(frames[index + 1].Forward, blend).Normalized();
         }
-        if (IsSprint) distance = Mathf.Clamp(distance, .55f, Length - .55f);
+        if (IsPointToPoint) distance = Mathf.Clamp(distance, .55f, Length - .55f);
         return (FlatPoint(distance + .55f) - FlatPoint(distance - .55f)).Normalized();
     }
     public Vector3 Right(float distance)
@@ -310,18 +403,35 @@ public sealed class BogCircuit
     }
     private Vector3 FlatSurface(float distance, float lane) => FlatPoint(distance) + (lane == 0 ? Vector3.Zero : Right(distance) * lane);
     internal Vector3 NativeSurface(float distance, float lane) => Ground(FlatSurface(distance, lane));
+    internal bool NavigableWater(Vector3 point) => WaterCourseLevel is { } water && land is not null &&
+        land.WorldBounds.Grow(-4).HasPoint(MuckwaterLayout.Flat(point)) && land.ContainsGround(point.X, point.Z) &&
+        (IsWaterCourse || NativeWet(point)) && land.Ground(point.X, point.Z).Y <= water - .04f;
     internal bool NativeDry(Vector3 point) => land is null || TownRoutePlanner.Dry(land, point.X, point.Z);
     internal float WidthAt(float distance) => sprint?.WidthAt(FlatPoint(distance)) ?? HalfWidth;
     internal bool IsSpan(float distance) => sprint?.OnSpan(FlatPoint(distance)) == true;
     internal float? SpanDeck(float distance) => sprint?.DeckHeight(FlatPoint(distance), land!);
     internal Vector3 GroundedRacePoint(Vector3 point, float distance)
     {
-        if (!HasGradedRoad) return FreeGround(point);
+        if (IsWaterCourse) return point with { Y = Math.Max(WaterCourseLevel!.Value, FreeGround(point).Y) };
+        if (!HasGradedRoad && !HasHybridTravel) return FreeGround(point);
         float lane = (point - FlatPoint(distance)).Dot(Right(distance));
         return new Vector3(point.X, Surface(distance, lane).Y, point.Z);
     }
     public Vector3 Surface(float distance, float lane)
     {
+        TrackTravelMode mode = TravelMode(distance);
+        if (mode == TrackTravelMode.JetSki && WaterCourseLevel is { } water)
+        {
+            var wet = FlatSurface(distance, lane);
+            wet.Y = IsWaterCourse || !OnWaterApproach(distance, mode) ? water : Math.Max(water, FreeGround(wet).Y);
+            return wet;
+        }
+        if (mode == TrackTravelMode.Flight)
+        {
+            var ground = Ground(FlatSurface(distance, lane));
+            if (WaterCourseLevel is { } flightWater && NativeWet(ground)) ground.Y = Math.Max(ground.Y, flightWater);
+            return ground;
+        }
         if (voidFrames is { } frames)
         {
             var (index, blend) = VoidFrameSample(distance);
@@ -329,7 +439,7 @@ public sealed class BogCircuit
             return lane == 0 ? center : center + frames[index].Right.Lerp(frames[index + 1].Right, blend).Normalized() * lane;
         }
         float width = IsSprint ? WidthAt(distance) : HalfWidth;
-        if (ridgeRoad is not null && Math.Abs(lane) <= width + .62f)
+        if (ridgeRoad is not null && distance < DismountLine && Math.Abs(lane) <= width + .62f)
         {
             Vector3 surface = ridgeRoad.Surface(distance, lane * HalfWidth / width);
             if (SpanDeck(distance) is { } deck) return surface with { Y = deck };
@@ -342,8 +452,8 @@ public sealed class BogCircuit
         Surface(distance, lane).Y - NativeSurface(distance, lane).Y > 1.3f;
 
     internal bool IsRoadDrop(Vector3 edge, Vector3 outside) =>
-        edge.Y - FreeGround(outside).Y > 1.45f || (IsCustom || IsSprint) &&
-        (land?.ContainsGround(outside.X, outside.Z) == false || !NativeDry(outside));
+        !IsWaterCourse && (edge.Y - FreeGround(outside).Y > 1.45f || (IsCustom || IsPointToPoint) &&
+        (land?.ContainsGround(outside.X, outside.Z) == false || !NativeDry(outside)));
 
     internal Vector3 KeepCameraOutsideScenery(Vector3 focus, Vector3 eye)
     {
@@ -368,7 +478,7 @@ public sealed class BogCircuit
         for (float at = Grid + 15; at < Length; at += IsSprint ? 64 : 38)
             foreach (int side in new[] { -1, 1 })
             {
-                if (IsSpan(at)) continue;
+                if (IsSpan(at) || TravelMode(at) != TrackTravelMode.Ground) continue;
                 var flag = new Node3D { Position = Surface(at, side * (WidthAt(at) + .35f)) };
                 scene.AddChild(flag);
                 Box(flag, new(0, 1.25f, 0), new(.09f, 2.52f, .09f), Paint("624631"));

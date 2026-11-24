@@ -87,6 +87,7 @@ public partial class GrandPrix
     private void ApplyWeather(Weather weather)
     {
         RestoreVoidAtmosphere();
+        weatherEnvironment.GlowEnabled = false;
         currentWeather = weather;
         raceWeatherAge = trackWater = 0;
         cloudWind = weather.Rain > 0 ? new Vector2(.012f, -.006f) : new Vector2(.0047f, .0026f);
@@ -135,6 +136,24 @@ public partial class GrandPrix
 
     private void TickTrackWeather(float dt)
     {
+        if (track.HasWaterSections) TickIslandSplashes(dt);
+        if (track.IsWaterCourse)
+        {
+            TickIslandGolems(dt);
+            TickIslandShow(dt);
+        }
+        if (track.IsKaleidoscope)
+        {
+            TickKaleidoscopePrisms(dt);
+            UpdateKaleidoscopeProbe(dt);
+            return;
+        }
+        if (track.IsJester)
+        {
+            TickJesterCast(dt);
+            TickJesterDescent();
+            return;
+        }
         if (track.IsVoid)
         {
             TickVoidSetpiece(dt);

@@ -110,7 +110,7 @@ public partial class GrandPrix
 
     private float RabbitTargetStationOffset(MountedRacer owner, MountedRacer target)
     {
-        if (track.IsSprint) return 0;
+        if (track.IsPointToPoint) return 0;
         float rawGap = target.Distance - owner.Distance;
         float raceGap = RaceProgress(target) - RaceProgress(owner);
         float gap = rawGap + Mathf.Round((raceGap - rawGap) / track.Length) * track.Length;
@@ -146,7 +146,7 @@ public partial class GrandPrix
         float origin = chase.Distance;
         float side = (from - track.Point(origin)).Dot(track.Right(origin)) < 0 ? -1 : 1;
         float minimum = origin - 240, maximum = origin + 240;
-        if (track.IsSprint) { minimum = Math.Max(0, minimum); maximum = Math.Min(track.Length, maximum); }
+        if (track.IsPointToPoint) { minimum = Math.Max(0, minimum); maximum = Math.Min(track.Length, maximum); }
         float best = float.PositiveInfinity;
         for (float station = minimum; station <= maximum; station += 8)
         {

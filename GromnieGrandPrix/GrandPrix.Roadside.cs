@@ -42,7 +42,7 @@ public partial class GrandPrix
         }
         roadsideSites.Clear();
         nextCrowdScan = nextCrowdSound = 0;
-        int count = Mathf.Clamp(Mathf.CeilToInt(track.Length / (track.IsRegional ? 440 : 145)), 3, 16);
+        int count = track.IsWaterCourse ? 0 : Mathf.Clamp(Mathf.CeilToInt(track.Length / (track.IsRegional ? 440 : 145)), 3, 16);
         for (int i = 0; i < count; i++)
         {
             float at = BogCircuit.Grid + Math.Min(27, track.Length * .12f) + i * track.Length / count;

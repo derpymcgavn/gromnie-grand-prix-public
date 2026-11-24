@@ -41,6 +41,22 @@ public sealed class AcTerrainRenderer
     public int AlbedoLayers{get;}
     public int MaskLayers{get;}
     public long ArrayBytes{get;private set;}
+
+    /// <summary>Applies powder relief to native snow layers. The optional red channel marks packed tracks.</summary>
+    public void SetSnowPowder(float depthMetres, Texture2D? compression = null, Rect2 bounds = default,
+        bool courseOverride = false)
+    {
+        float depth = float.IsFinite(depthMetres) ? Math.Clamp(depthMetres, 0, 1.25f) : 0;
+        bool hasTracks = depth > 0 && compression is not null && bounds.Position.IsFinite() && bounds.Size.IsFinite() &&
+            bounds.Size.X > 0 && bounds.Size.Y > 0;
+        Material.SetShaderParameter("snow_powder_depth", depth);
+        Material.SetShaderParameter("snow_course_powder", depth > 0 && courseOverride);
+        Material.SetShaderParameter("snow_compaction", hasTracks ? Variant.From(compression!) : default);
+        Material.SetShaderParameter("snow_compaction_bounds", hasTracks
+            ? new Vector4(bounds.Position.X, bounds.Position.Y, 1 / bounds.Size.X, 1 / bounds.Size.Y)
+            : Vector4.Zero);
+    }
+
     private const string ShaderCode="""
         shader_type spatial;
         render_mode cull_disabled, specular_schlick_ggx, diffuse_lambert;
@@ -62,6 +78,12 @@ public sealed class AcTerrainRenderer
         uniform vec2 cloud_shadow_offset=vec2(0.0);
         uniform float cloud_shadow_scale=256.0;
         uniform float cloud_shadow_strength : hint_range(0.0,0.35)=0.0;
+        uniform float snow_powder_depth;
+        uniform bool snow_course_powder = false;
+        uniform float snow_powder_texture_layer = -1.0;
+        uniform float native_snow_layers[32];
+        uniform sampler2D snow_compaction : hint_default_black, filter_linear, repeat_disable;
+        uniform vec4 snow_compaction_bounds;
         uniform float terrain_tiling[33];
         uniform vec2 terrain_uv_scale[33];
         uniform vec4 mask_uv_data[64];
@@ -73,6 +95,17 @@ public sealed class AcTerrainRenderer
         void vertex(){layer_ids=CUSTOM0;mask_ids=CUSTOM1;mask_turns=CUSTOM2;road_info=CUSTOM3;terrain_world=(MODEL_MATRIX*vec4(VERTEX,1.0)).xyz;}
         float water_layer(float layer) {
             return float((layer>=16.0&&layer<=20.0)||layer==22.0||layer==23.0);
+        }
+        float snow_layer(float layer) {
+            if(layer<0.0||layer>=32.0)return 0.0;
+            return native_snow_layers[int(layer)];
+        }
+        float packed_snow(vec2 position) {
+            if(snow_compaction_bounds.z<=0.0)return 0.0;
+            vec2 uv=(position-snow_compaction_bounds.xy)*snow_compaction_bounds.zw;
+            vec2 edge=min(uv,1.0-uv);
+            if(min(edge.x,edge.y)<=0.0)return 0.0;
+            return texture(snow_compaction,uv).r;
         }
         vec2 rotate_mask(vec2 p,float r){
             if(r<0.5)return p;
@@ -111,13 +144,37 @@ public sealed class AcTerrainRenderer
             float native_water=clamp(dot(w,vec4(water_layer(layer_ids.x),water_layer(layer_ids.y),
                 water_layer(layer_ids.z),water_layer(layer_ids.w))),0.0,1.0);
             course.rb*=1.0-smoothstep(.22,.84,native_water);
-            if(course.b>0.0){
+            if(!snow_course_powder&&course.b>0.0){
                 vec3 soil=native_color(uv*1.10,7.0)*vec3(1.16,.98,.80);
                 vec3 stone=native_color(uv*1.25,32.0)*vec3(.84,.81,.74);
                 color=mix(color,soil,course.b*.26);
                 color=mix(color,mix(soil,stone,.24),course.r*.91);
             }
             vec3 ground_up=normalize(mat3(INV_VIEW_MATRIX)*NORMAL);
+            float snow=0.0;
+            float packed=0.0;
+            if(snow_powder_depth>0.0){
+                // Preserve the same tile-edge masks as the DAT albedo.
+                snow=smoothstep(.18,.82,dot(w,vec4(snow_layer(layer_ids.x),snow_layer(layer_ids.y),
+                    snow_layer(layer_ids.z),snow_layer(layer_ids.w))))*(1.0-.85*original_road);
+                if(snow_course_powder){
+                    float prepared=smoothstep(.08,.74,course.r);
+                    vec3 native_powder=snow_powder_texture_layer>=0.0?native_color(uv,snow_powder_texture_layer):vec3(.78,.84,.89);
+                    color=mix(color,native_powder,prepared*.97);
+                    snow=max(snow,prepared);
+                }
+                if(snow>.005){
+                    packed=packed_snow(cloud_world_xz);
+                    float relief=1.0-smoothstep(28.0,115.0,length(VERTEX));
+                    float depth=min(snow_powder_depth,.52);
+                    float settled=water_noise(cloud_world_xz*.82)*.17+water_noise(cloud_world_xz*2.9)*.055;
+                    float height=snow*depth*(settled-packed*.35);
+                    NORMAL=normalize(mix(NORMAL,surface_relief(VERTEX,NORMAL,height,.65),relief));
+                    vec3 fresh=color*vec3(1.09,1.13,1.17)+vec3(.021,.026,.031);
+                    vec3 compressed=color*vec3(.76,.83,.92);
+                    color=mix(color,mix(fresh,compressed,smoothstep(.05,.88,packed)),snow);
+                }
+            }
             float detail=1.0;
             if(terrain_detail){
                 float grain=texture(surface_grain,cloud_world_xz/1.04).r;
@@ -136,7 +193,7 @@ public sealed class AcTerrainRenderer
             vec3 pool_normal;
             float film;
             float pool;
-            track_water_surface(cloud_world_xz,course.r,course.a,ground_up,eye,TIME,base,reflection,film,pool,pool_normal);
+            track_water_surface(cloud_world_xz,course.r*(1.0-snow),course.a,ground_up,eye,TIME,base,reflection,film,pool,pool_normal);
             if(pool>.005)NORMAL=normalize(mix(NORMAL,mat3(VIEW_MATRIX)*pool_normal,pool));
             float river=smoothstep(.35,.92,native_water)*(1.0-max(original_road,course.r));
             river*=smoothstep(.72,.97,ground_up.y);
@@ -162,6 +219,8 @@ public sealed class AcTerrainRenderer
             EMISSION=reflection;
             ROUGHNESS=mix(mix(.99,.46,film),.065,pool);
             SPECULAR=.36*pool;
+            ROUGHNESS=mix(ROUGHNESS,mix(.98,.64,packed),snow);
+            SPECULAR=mix(SPECULAR,mix(.08,.24,packed),snow);
         }
         """;
     public AcTerrainRenderer(AcAssets assets,AcWorldData.Region region)
@@ -184,6 +243,15 @@ public sealed class AcTerrainRenderer
         if (assets.UseSurfaceRelief && assets.Texture(descriptors[7].DetailTexture) is { } grain)
             Material.SetShaderParameter("surface_grain", grain);
         Material.SetShaderParameter("terrain_tiling",tiling);Material.SetShaderParameter("terrain_uv_scale",albedoScale);Material.SetShaderParameter("mask_uv_data",maskData);
+        var snowLayers = new float[32];
+        for (int layer = 0; layer < Math.Min(snowLayers.Length, region.Terrains.Length); layer++)
+        {
+            string name = region.Terrains[layer].Name;
+            if (name.Contains("Snow", StringComparison.OrdinalIgnoreCase)) snowLayers[layer] = 1;
+            else if (name.Contains("Ice", StringComparison.OrdinalIgnoreCase)) snowLayers[layer] = .62f;
+        }
+        Material.SetShaderParameter("native_snow_layers", snowLayers);
+        Material.SetShaderParameter("snow_powder_texture_layer", (float)Array.FindIndex(snowLayers, weight => weight >= 1));
         InitializeCloudShadow(Material);
         GD.Print($"NATIVE TERRAIN ARRAYS: albedos={AlbedoLayers} masks={MaskLayers} albedo={albedo.GetWidth()}x{albedo.GetHeight()} alpha={alpha.GetWidth()}x{alpha.GetHeight()} mip-bytes={ArrayBytes} native-pixels=repeated-not-resized opaque-passes-per-block=1");
     }

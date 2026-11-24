@@ -261,6 +261,10 @@ public partial class GrandPrix
         foreach (var (id, layout) in VoidCourses)
             add(id, layout.Name + "     ·     VOID");
         if (spanSprint is { } sprint) add(sprint.Id, sprint.Name + "   ·   Obsidian Span");
+        if (DismountCourseAvailable) add(DismountCourseId, DismountCourseName + "     ·     7×7");
+        if (IslandWaterCourseAvailable) add(IslandWaterCourseId, IslandWaterCourseName + "     ·     WATER");
+        foreach (var (id, name) in SnowboardCourses)
+            if (SnowboardCourseAvailable(id)) add(id, name + "     ·     SNOWBOARD");
         foreach (var custom in customTracks.Values.OrderBy(row => row.Name, StringComparer.OrdinalIgnoreCase))
             add(custom.Id, custom.Name + "     ·     CUSTOM");
         foreach (int id in xlRoutes.Keys.OrderBy(id => CourseName(id), StringComparer.OrdinalIgnoreCase))
@@ -280,13 +284,14 @@ public partial class GrandPrix
         bool obsidian = ridgeCircuits.ContainsKey(activeTown) || landmarkCircuits.GetValueOrDefault(activeTown)?.Battle is not null;
         lapSplitHud.Hide();
         shownLapSplit = default;
-        lapHeader.Text = track.IsSprint ? "ROUTE" : "LAP";
+        lapHeader.Text = track.IsPointToPoint ? "ROUTE" : "LAP";
         mapName.Text = track.IsSprint ? "OBSIDIAN SPAN" :
             (obsidian ? track.Name[(track.Name.IndexOf(" - ", StringComparison.Ordinal) + 3)..] : track.Name).ToUpperInvariant();
         mapName.AddThemeFontSizeOverride("font_size", track.IsVoid || track.IsMedium ? 13 : obsidian || landmarkCircuits.ContainsKey(activeTown) ? 14 : 16);
         resultCourse.Text = track.Name.ToUpperInvariant() + " RESULTS";
         map.SetTrack(track, FlyoverMapPoints(), localRacerIndex,
-            track.IsVoid ? [VoidAerbaxPosition, Vector3.Zero, VoidAsheronPosition] : []);
+            track.IsJester ? [track.Point(track.Length * JesterPortalEntry), track.Point(track.Length * JesterPortalExit)] :
+            track.IsVoidBattle ? [VoidAerbaxPosition, Vector3.Zero, VoidAsheronPosition] : []);
     }
     private Control Layer(CanvasLayer canvas)
     {
@@ -533,6 +538,9 @@ public partial class GrandPrix
         bestLabel.Text = best >= 0 ? $"PERSONAL BEST   {FormatTime(best)}" : "PERSONAL BEST   —";
         courseButton.Text = $"COURSE   ·   {SelectedCourseName}";
         courseStatus.Text = courseProblem.Length > 0 ? courseProblem
+            : selectedTown == DismountCourseId ? "7 × 7 landblocks  /  Mounted start, footrace finish"
+            : selectedTown == IslandWaterCourseId ? "1 lap around Asheron's Island  /  Gear Knight jet skis"
+            : SnowboardCourses.ContainsKey(selectedTown) ? "Downhill sprint  /  Snowboards"
             : VoidCourses.TryGetValue(selectedTown, out var voidCourse) ? $"5 laps  /  {voidCourse.Details}"
             : CustomCourse(selectedTown) is { } custom ? $"Custom circuit  /  {custom.GridSide} × {custom.GridSide}  /  {custom.Width:0} m wide"
             : spanSprint?.Id == selectedTown ? "Point-to-point  /  Obsidian Span  /  Cragstone finish"
@@ -546,7 +554,7 @@ public partial class GrandPrix
     {
         UpdateRaceTouchMode();
         placeText.Text = $"{place}/{RacerCount}";
-        lapText.Text = track.IsSprint ? $"{Mathf.Clamp(Mathf.RoundToInt(100 * Player.Distance / track.Gate(track.GateCount)), 0, 100)}%" : $"{lap}/{track.Laps}";
+        lapText.Text = track.IsPointToPoint ? $"{Mathf.Clamp(Mathf.RoundToInt(100 * Player.Distance / track.Gate(track.GateCount)), 0, 100)}%" : $"{lap}/{track.Laps}";
         timerText.Text = FormatTime(Player.Finish >= 0 ? Player.Finish : elapsed);
         UpdateLapSplitHud();
         itemText.Text = ItemName(Player.Item) + (Player.ItemCharges > 1 ? $" ×{Player.ItemCharges}" : "");
@@ -554,6 +562,7 @@ public partial class GrandPrix
         itemText.Modulate = Player.Item == RaceItem.None ? Soft : Mint;
         itemIcon.Texture = ItemIcon(Player.Item);
         itemHint.Text = IsSudsed(Player) ? $"CONTROLS FLIPPED  ·  {Mathf.CeilToInt(Player.SudsedUntil - elapsed)}s"
+            : Player.UsesJetSki && Player.MountRecovery > 0 ? $"JESUS MODE!  ·  SKI RETURNS IN {Mathf.CeilToInt(Player.MountRecovery)}s"
             : Player.MountRecovery > 0 ? $"ON FOOT  ·  MOUNT RECOVERS IN {Mathf.CeilToInt(Player.MountRecovery)}s"
             : Player.RemountTime > 0 ? "REMOUNTING"
             : Player.Flight is { } flight ? FlightControlHint(flight) : Player.ResetHold > 0 ? "Recalled to the last checkpoint" : Player.Frozen > 0 ? "Frostbitten · reduced speed"
@@ -562,15 +571,19 @@ public partial class GrandPrix
             : Player.Might > 0 ? "Tusker Might · giant form"
             : Player.Invulnerable > 0 ? "Invulnerability active"
             : Player.BoostStrain >= MountStrainWarning ? "MOUNT TIRED  ·  EASE OFF THE BOOST"
-            : Player.Ward > 0 ? "Portal Ward active" : ItemHint(Player.Item);
+            : Player.Ward > 0 ? "Portal Ward active"
+            : Player.UsesSnowboard && Player.Item == RaceItem.None && !OS.HasFeature("android") ? "W TO PUSH  ·  S TO BRAKE"
+            : ItemHint(Player.Item);
         UpdateRaceSpeedUi();
         driftMeter.Size = new Vector2(149 * charge / 1.5f, 8);
         balanceMeter.Size = new Vector2(149 * Player.Stability / 100f, 8);
         UpdateShieldUi();
-        int gate = track.IsSprint ? Player.GatesCleared : Player.GatesCleared % track.GateCount;
+        int gate = track.IsPointToPoint ? Player.GatesCleared : Player.GatesCleared % track.GateCount;
         gateText.Text = Player.Finish >= 0 && !finished ? "FINISHED · WAITING"
             : track.IsSprint && gate >= track.GateCount ? "CRAGSTONE FINISH"
             : Player.Finish >= 0 ? "FINISHED"
+            : Player.UsesSnowboard ? gate >= track.GateCount ? "FINISH AHEAD" : "FOLLOW THE FLAGS"
+            : Player.OnFootToFinish ? $"ON FOOT  ·  GATE {Math.Clamp(gate, 1, track.GateCount)}/{track.GateCount}"
             : Player.Flight is not null ? $"AIRBORNE  ·  GATE {gate + 1}/{track.GateCount}"
             : Player.FreeDriving ? $"OFF TRACK  ·  GATE {gate + 1}/{track.GateCount}" : $"NEXT GATE   {gate + 1}/{track.GateCount}";
         calloutText.Text = countdown > 0 ? $"{Math.Ceiling(countdown)}" : notification > 0 ? message : "";
@@ -621,7 +634,7 @@ public partial class GrandPrix
         resultTitle.Text = Player.Finish < 0 ? "DID NOT FINISH" : $"{ordinals[place]} PLACE";
         resultTime.Text = Player.Finish < 0 ? "The finish window expired." : FormatTime(Player.Finish) + (record ? "   /   PERSONAL BEST" : "");
         ShowResultStandings();
-        if (track.IsVoid && BeginVoidFinaleCamera()) return;
+        if (track.IsVoidBattle && BeginVoidFinaleCamera()) return;
         PlayRaceResultsMusic();
         resultsUi.Show();
     }
@@ -772,8 +785,16 @@ public partial class TrackMap : Control
         }
         else
         {
-            courseLayer.DrawPolyline(road, new Color("405947"), 8, true);
-            courseLayer.DrawPolyline(road, new Color("819274"), 2.3f, true);
+            int breakIndex = (road.Length - 1) / 2;
+            Vector2[] riding = track.IsDismountSprint ? road[..(breakIndex + 1)] : road;
+            courseLayer.DrawPolyline(riding, new Color("405947"), 8, true);
+            courseLayer.DrawPolyline(riding, new Color("819274"), 2.3f, true);
+            if (track.IsDismountSprint)
+            {
+                courseLayer.DrawPolyline(road[breakIndex..], new Color("294c47"), 6, true);
+                courseLayer.DrawPolyline(road[breakIndex..], new Color("75d9c0"), 2.3f, true);
+                courseLayer.DrawCircle(road[breakIndex], 3.3f, new Color("ffc978"), true, -1, true);
+            }
         }
         if (battleStages.Length == 3)
         {
@@ -781,7 +802,7 @@ public partial class TrackMap : Control
             courseLayer.DrawCircle(battleStages[1], 5, new Color("c385ff"), false, 1.5f, true);
             courseLayer.DrawCircle(battleStages[2], 3.3f, new Color("ffe29d"), true, -1, true);
         }
-        if (track.IsSprint)
+        if (track.IsPointToPoint)
         {
             courseLayer.DrawCircle(road[0], 3.1f, new Color("b4ead5"), true, -1, true);
             courseLayer.DrawCircle(road[^1], 3.5f, new Color("ffc978"), true, -1, true);

@@ -17,8 +17,9 @@ public sealed partial class MountedRacer
     internal float Leap, Might, Invulnerable, Phased, Hexed, SpinTime, PowerEffectAt;
     internal AcActor? PowerForm;
     internal bool DodgesItems => Falling || LeapHeight > .32f || Might > 0 || Invulnerable > 0 || Phased > 0;
-    internal const float LeapDuration = .90f, SpinDuration = .60f;
-    internal float LeapHeight => Leap > 0 ? 2.6f * Mathf.Sin(Mathf.Pi * (1 - Leap / LeapDuration)) : 0;
+    internal const float LeapLaunchSpeed = 7.15f, LeapDuration = 2 * LeapLaunchSpeed / RacePhysics.Gravity, SpinDuration = .60f;
+    internal float LeapHeight => Leap > 0
+        ? Math.Max(0, RacePhysics.BallisticPosition(Vector3.Zero, Vector3.Up * LeapLaunchSpeed, LeapDuration - Leap).Y) : 0;
     public float Checkpoint, ResetHold, ItemGrace, Frozen, Ward;
     public float SwipeCooldown, SwingTime, EjectTime;
     internal float GuardWindow, GuardCooldown, GuardFlash;
@@ -37,20 +38,23 @@ public sealed partial class MountedRacer
     public float FreeYaw;
     private Transform3D seatedTransform;
     internal Ejection EjectMotion { get; private set; }
-    public const float EjectDuration = .92f;
+    public const float EjectDuration = 1.24f;
     public int SwingSide;
     public bool SwingLanded;
     internal RaceWeapon Weapon { get; }
     internal RaceShield Shield { get; }
-    private readonly (Node3D Part, Transform3D RestPose)[] weaponArm;
-    private readonly (Node3D Part, Transform3D RestPose)[] shieldArm;
+    private (Node3D Part, Transform3D RestPose)[] weaponArm = [];
+    private (Node3D Part, Transform3D RestPose)[] shieldArm = [];
 
     internal RaceMount Rig { get; }
     private readonly Basis saddleRest;
     private readonly Vector3 saddleOffset;
     private readonly MountFoot[] footContacts;
     private readonly Node3D seat;
-    private readonly float riderScale, flightRiderScale, relativeScale;
+    private readonly Node3D groundSaddleParent;
+    private readonly Node3D? groundSaddleTack;
+    private readonly float flightRiderScale, relativeScale;
+    private float riderScale;
     private readonly RoadContact[] mountRoadContacts, riderRoadContacts, companionRoadContacts;
     private static readonly ConditionalWeakTable<Mesh, Vector3[]> RoadContactVertices = new();
     private float roadPoseLift;
@@ -58,15 +62,17 @@ public sealed partial class MountedRacer
     private readonly record struct RoadContact(MeshInstance3D Instance, Mesh Geometry, Aabb Bounds);
 
     internal MountedRacer(AcAssets assets, RaceMount rig, RareCatalog.Creature gromnie, CharacterLookDefinition look,
-        string name, RaceWeapon weapon, RaceShield shield, int mountColor = 0)
+        string name, RaceWeapon weapon, RaceShield shield, int mountColor = 0, bool jetSki = false,
+        bool supportsJetSki = false)
     {
         Name = name;
         Weapon = weapon;
         Shield = shield;
+        if (jetSki) rig = RaceMount.Get(RaceMountKind.Gromnie);
         Rig = rig;
-        var skin = rig.ResolveLook(gromnie, mountColor);
+        var skin = rig.ResolveLook(gromnie, jetSki ? 0 : mountColor);
         Mount = assets.CreateActor(skin.Setup, skin.Motion, rig.Scale);
-        rig.ApplyMountColor(Mount, skin, mountColor);
+        if (!jetSki) rig.ApplyMountColor(Mount, skin, mountColor);
         bool skates = rig.Kind == RaceMountKind.CarenziSkates;
         if (skates)
         {
@@ -87,30 +93,43 @@ public sealed partial class MountedRacer
         }).ToArray();
         DustContact = new bool[gromnieRig ? 2 : footContacts.Length * (skates ? 2 : 1)];
         Root.AddChild(Mount);
-        (skates ? Root : Mount).AddChild(Saddle);
+        if (jetSki || supportsJetSki) BuildJetSki(assets, mountColor, jetSki);
+        groundSaddleParent = skates ? Root : Mount;
+        (jetSkiRig ?? groundSaddleParent).AddChild(Saddle);
         relativeScale = RaceMount.Get(RaceMountKind.Gromnie).Scale / (skates ? 1 : rig.Scale);
-        if (!platform && !skates && rig.Kind is not (RaceMountKind.Asheron or RaceMountKind.BaelZharon)) BuildSaddle(Saddle, relativeScale);
+        if (!platform && !skates && !jetSki && rig.Kind is not (RaceMountKind.Asheron or RaceMountKind.BaelZharon))
+        {
+            BuildSaddle(Saddle, relativeScale);
+            groundSaddleTack = Saddle.GetChild<Node3D>(0);
+        }
         seat = new Node3D();
         Saddle.AddChild(seat);
         flightRiderScale = Mathf.Clamp(look.Scale, .82f, 1.12f) * .81f;
-        riderScale = flightRiderScale * relativeScale;
+        riderScale = flightRiderScale * (jetSki ? JetSkiSeatScale : relativeScale);
         Rider = assets.CreateActor(look.Setup, look.Motion, riderScale);
         Rider.SetCharacterAppearance(look);
         seat.AddChild(Rider);
         PoseMounted();
         Rider.Hold(weapon.Setup, 1, scale: weapon.Scale);
         Rider.HoldShield(shield.Look, shield.Look?.Scale ?? 1);
-        weaponArm = Rider.Setup.Holdings.TryGetValue(1, out var holding) && holding.Part >= 2
-            ? Enumerable.Range(holding.Part - 2, 3).Select(i => (Rider.Part(i), Rider.Part(i).Transform)).ToArray()
-            : [];
-        shieldArm = shield.Look is not null && Rider.Setup.Holdings.TryGetValue(3, out var offHand) && offHand.Part >= 2
-            ? Enumerable.Range(offHand.Part - 2, 3).Select(i => (Rider.Part(i), Rider.Part(i).Transform)).ToArray()
-            : [];
+        CaptureMountedArms();
         UpdateSaddle(0);
         if (CompanionSkate is { } companion) DrawSkates(companion, 0, false, 0);
         mountRoadContacts = RoadContacts(Mount.BodyMeshes);
         riderRoadContacts = RoadContacts(Rider.BodyMeshes);
         companionRoadContacts = CompanionSkate is { } skate ? RoadContacts(skate.BodyMeshes) : [];
+        BuildTuskerFur(mountColor);
+        SetMountVisible(true);
+    }
+
+    private void CaptureMountedArms()
+    {
+        weaponArm = Rider.Setup.Holdings.TryGetValue(1, out var holding) && holding.Part >= 2
+            ? Enumerable.Range(holding.Part - 2, 3).Select(i => (Rider.Part(i), Rider.Part(i).Transform)).ToArray()
+            : [];
+        shieldArm = Shield.Look is not null && Rider.Setup.Holdings.TryGetValue(3, out var offHand) && offHand.Part >= 2
+            ? Enumerable.Range(offHand.Part - 2, 3).Select(i => (Rider.Part(i), Rider.Part(i).Transform)).ToArray()
+            : [];
     }
 
     internal static void BuildSaddle(Node3D anchor, float scale)
@@ -132,7 +151,8 @@ public sealed partial class MountedRacer
 
     private void PoseMounted()
     {
-        if (CompanionSkate is not null) PoseSkateRider();
+        if (UsesJetSki) PoseJetSkiRider();
+        else if (CompanionSkate is not null) PoseSkateRider();
         else if (Rig.Platform != MountPlatform.None) PosePlatformRider();
         else PoseSeated(relativeScale, Rig.LegSpread, Rig.Kind == RaceMountKind.Asheron, Rig.Kind == RaceMountKind.BaelZharon ? -.44f : 0);
     }
@@ -156,6 +176,8 @@ public sealed partial class MountedRacer
 
     internal void TakeFlight(FlightRide flight)
     {
+        ResetSnowboardPhysics();
+        if (UsesJetSki) SetJetSkiActive(false);
         if (overboostDetached) RestoreOverboostPose(reseat: false);
         Flight = flight;
         SuperDriftUntil = 0;
@@ -192,6 +214,15 @@ public sealed partial class MountedRacer
 
     private void SetRigVisible(bool visible)
     {
+        if (SetSnowboardVisible(visible)) return;
+        if (jetSkiRig is { } ski)
+        {
+            Mount.Hide();
+            CompanionSkate?.Hide();
+            Saddle.Show();
+            ski.Visible = visible;
+            return;
+        }
         Mount.Visible = visible;
         if (CompanionSkate is not { } companion) return;
         companion.Visible = Saddle.Visible = visible;
@@ -240,27 +271,34 @@ public sealed partial class MountedRacer
 
     private void UpdateSaddle(float lean, bool poseRiderArms = true)
     {
-        var back = Rig.Platform == MountPlatform.None && CompanionSkate is null ? Mount.BodyPartTransform(Rig.SeatPart) : Transform3D.Identity;
-        Saddle.Position = back.Origin + back.Basis * saddleOffset;
-        Saddle.Basis = back.Basis * saddleRest;
-        if (Rig.SaddleFollow < 1)
+        if (UsesJetSki)
         {
-            // The Mukkir folds nearly horizontal while sprinting. Keep its saddle
-            // above the animated torso without pitching the rider into its claws.
-            var pitch = Saddle.Basis.Orthonormalized().GetRotationQuaternion().Normalized();
-            Saddle.Basis = new Basis(Quaternion.Identity.Slerp(pitch, Rig.SaddleFollow).Normalized());
-            Saddle.Position = back.Origin + Saddle.Basis * Rig.SeatOffset;
+            Saddle.Position = JetSkiSaddlePosition;
+            Saddle.Basis = Basis.Identity;
+        }
+        else
+        {
+            var back = Rig.Platform == MountPlatform.None && CompanionSkate is null ? Mount.BodyPartTransform(Rig.SeatPart) : Transform3D.Identity;
+            Saddle.Position = back.Origin + back.Basis * saddleOffset;
+            Saddle.Basis = back.Basis * saddleRest;
+            if (Rig.SaddleFollow < 1)
+            {
+                // Keep the Mukkir's saddle upright when its torso pitches forward.
+                var pitch = Saddle.Basis.Orthonormalized().GetRotationQuaternion().Normalized();
+                Saddle.Basis = new Basis(Quaternion.Identity.Slerp(pitch, Rig.SaddleFollow).Normalized());
+                Saddle.Position = back.Origin + Saddle.Basis * Rig.SeatOffset;
+            }
         }
         float swing = SwingTime > 0 ? MathF.Sin((1 - SwingTime / RaceWeapon.SwingDuration) * Mathf.Pi) : 0;
-        float tilt = Rig.Kind switch
+        float tilt = UsesJetSki ? -.10f : Rig.Kind switch
         {
             RaceMountKind.Asheron => -.32f, RaceMountKind.BaelZharon => .08f,
             RaceMountKind.CarenziSkates => -.16f,
             RaceMountKind.FestivusCarpet or RaceMountKind.IsinDuleDisc => 0, _ => -.10f
         };
-        float bodyLean = Rig.Platform == MountPlatform.None ? lean * .29f : 0;
+        float bodyLean = UsesJetSki || Rig.Platform == MountPlatform.None ? lean * .29f : 0;
         seat.Rotation = new Vector3(tilt, -SwingSide * swing * .24f, bodyLean - SwingSide * swing * .22f);
-        if (Rig.Kind == RaceMountKind.BaelZharon) PoseCarryArms();
+        if (!UsesJetSki && Rig.Kind == RaceMountKind.BaelZharon) PoseCarryArms();
         if (!poseRiderArms) return;
         for (int i = 0; i < weaponArm.Length; i++)
         {
@@ -313,8 +351,10 @@ public sealed partial class MountedRacer
         palm.Transform = new Transform3D(lowerTurn * palm.Basis, grip);
     }
 
-    public Vector3 CoursePosition(BogCircuit track) => Flight?.Position ?? (FreeDriving ? FreePosition : track.Surface(Distance, Lane));
-    public Vector3 Heading(BogCircuit track) => Flight?.Heading ?? (FreeDriving ? Vector3.Forward.Rotated(Vector3.Up, FreeYaw) : track.Forward(Distance));
+    public Vector3 CoursePosition(BogCircuit track) => Flight?.Position ??
+        (HasSnowboardPhysics ? SnowboardPosition : FreeDriving ? FreePosition : track.Surface(Distance, Lane));
+    public Vector3 Heading(BogCircuit track) => Flight?.Heading ??
+        (HasSnowboardPhysics ? SnowboardHeading : FreeDriving ? Vector3.Forward.Rotated(Vector3.Up, FreeYaw) : track.Forward(Distance));
     public Vector3 Right(BogCircuit track) => Heading(track).Cross(Vector3.Up);
 
     // The paired front claws on each of the native Gromnie's two feet.
@@ -338,16 +378,19 @@ public sealed partial class MountedRacer
         return actor.Part(contact.Part).GlobalTransform * contact.Offset;
     }
 
-    public void Eject(BogCircuit track, Vector3 impactDirection, Transform3D? airPose = null, Vector3? airHeading = null)
+    public void Eject(BogCircuit track, Vector3 impactDirection, Transform3D? airPose = null, Vector3? airHeading = null,
+        Vector3? inheritedVelocity = null)
     {
         SuperDriftUntil = 0;
         GroundDrifting = false;
         seatedTransform = Rider.Transform;
         Vector3 forward = airHeading ?? Heading(track);
-        Vector3 velocity = impactDirection * 5.8f + forward * (3.2f + Speed * .22f) + Vector3.Up * 5.9f;
+        Vector3 impulse = (impactDirection with { Y = 0 }).Normalized() * 5.8f + Vector3.Up * 3.9f;
+        Vector3 momentum = inheritedVelocity ?? forward * (3.2f + Speed * .22f);
+        Vector3 velocity = impulse + momentum;
         Vector3 axis = (forward * .9f + impactDirection.Cross(Vector3.Up) * .58f + Vector3.Up * .24f).Normalized();
         int side = impactDirection.Dot(Right(track)) < 0 ? -1 : 1;
-        EjectMotion = new(airPose ?? Rider.GlobalTransform, velocity, axis, side);
+        EjectMotion = Ejection.Create(track, airPose ?? Rider.GlobalTransform, velocity, axis, side);
         Rider.TopLevel = true;
         Rider.GlobalTransform = EjectMotion.Launch;
         EjectTime = EjectDuration;
@@ -414,13 +457,54 @@ public sealed partial class MountedRacer
         Rider.GlobalTransform = detached;
     }
 
-    internal readonly record struct Ejection(Transform3D Launch, Vector3 Velocity, Vector3 Axis, int Side)
+    internal readonly record struct Ejection(Transform3D Launch, Vector3 Velocity, Vector3 Axis, int Side,
+        float ContactTime, Vector3 Contact, Vector3 SlideVelocity)
     {
+        private const float BodyClearance = .52f;
+        private const float SlideDamping = 5.4f;
+
+        internal static Ejection Create(BogCircuit track, Transform3D launch, Vector3 velocity, Vector3 axis, int side)
+        {
+            Vector3 previous = launch.Origin;
+            const int samples = 75;
+            for (int sample = 1; sample <= samples; sample++)
+            {
+                float age = sample * EjectDuration / samples;
+                Vector3 point = RacePhysics.BallisticPosition(launch.Origin, velocity, age);
+                if (RacePhysics.TryGroundContact(track, previous, point, BodyClearance, includeRoad: true,
+                    out float fraction, out Vector3 contact))
+                {
+                    float hitAt = (sample - 1 + fraction) * EjectDuration / samples;
+                    Vector3 hitVelocity = velocity + RacePhysics.Acceleration * hitAt;
+                    float east = track.GroundOrRoadHeight(contact + Vector3.Right * .36f);
+                    float west = track.GroundOrRoadHeight(contact - Vector3.Right * .36f);
+                    float south = track.GroundOrRoadHeight(contact + Vector3.Back * .36f);
+                    float north = track.GroundOrRoadHeight(contact - Vector3.Back * .36f);
+                    Vector3 normal = new Vector3(west - east, .72f, north - south).Normalized();
+                    Vector3 slide = hitVelocity.Slide(normal) * .58f;
+                    return new(launch, velocity, axis, side, hitAt, contact, slide);
+                }
+                previous = point;
+            }
+            return new(launch, velocity, axis, side, float.PositiveInfinity, Vector3.Zero, Vector3.Zero);
+        }
+
         public Transform3D PoseAt(BogCircuit track, float age)
         {
-            Vector3 point = Launch.Origin + Velocity * age + Vector3.Down * (8.1f * age * age);
-            point.Y = Math.Max(point.Y, track.GroundOrRoadHeight(point) + .3f);
-            return new Transform3D(new Basis(Axis, age * 9.2f * Side) * Launch.Basis, point);
+            Vector3 point;
+            float spinAge = age;
+            if (age < ContactTime)
+            {
+                point = RacePhysics.BallisticPosition(Launch.Origin, Velocity, age);
+            }
+            else
+            {
+                float slideTime = (1 - Mathf.Exp(-(age - ContactTime) * SlideDamping)) / SlideDamping;
+                point = Contact + SlideVelocity * slideTime;
+                point.Y = Math.Max(point.Y, track.GroundOrRoadHeight(point) + BodyClearance);
+                spinAge = ContactTime + slideTime * .56f;
+            }
+            return new Transform3D(new Basis(Axis, spinAge * 9.2f * Side) * Launch.Basis, point);
         }
     }
 
@@ -439,6 +523,7 @@ public sealed partial class MountedRacer
             Rider.SetShieldVisible(GuardWindow > 0 || GuardFlash > 0);
             Root.Position = flight.Position;
             Root.Rotation = new Vector3(flight.Pitch, BogCircuit.Yaw(flight.Heading), flight.Bank + flight.RollAngle);
+            AgeJetSkiWake(track, dt);
             flight.Flyer.Draw(dt, flight.Age, flight.Bank);
             if (flight.Flyer.SeatsRider) return;
             Rider.TickCurrentMotion(dt);
@@ -450,6 +535,25 @@ public sealed partial class MountedRacer
         Vector3 forward = Heading(track);
         Vector3 right = forward.Cross(Vector3.Up);
         Vector3 point = CoursePosition(track);
+        if (HasSnowboardPhysics)
+        {
+            Root.Position = point;
+            float spinAngle = SpinTime > 0 ? Mathf.Tau * (1 - SpinTime / SpinDuration) : 0;
+            Root.Rotation = new(SnowboardPitch, BogCircuit.Yaw(forward) + spinAngle, SnowboardRoll);
+            DrawSnowboard(track, dt, moving, steering);
+            return;
+        }
+        if (UsesJetSki)
+        {
+            bool onFoot = MountUnavailable && (RemountTime <= 0 || !CanRemount);
+            float lift = onFoot ? SkiSurfaceOffset(point) + SkiFootClearance : SkiHeave + .028f;
+            Root.Position = point + Vector3.Up * (lift + LeapHeight);
+            float skiSpin = SpinTime > 0 ? Mathf.Tau * (1 - SpinTime / SpinDuration) : 0;
+            Root.Rotation = new(onFoot ? 0 : SkiPitch, BogCircuit.Yaw(forward) + skiSpin, onFoot ? 0 : SkiRoll);
+            if (!DrawOverboost(track, dt, moving, steering)) DrawMountRig(dt, moving, steering);
+            UpdateJetSkiWake(dt, steering, track.WaterCourseLevel!.Value);
+            return;
+        }
         Root.Position = point + Vector3.Up * (.028f + LeapHeight);
         float grade, crossSlope;
         if (Falling)
@@ -471,6 +575,8 @@ public sealed partial class MountedRacer
         float spin = SpinTime > 0 ? Mathf.Tau * (1 - SpinTime / SpinDuration) : 0;
         Root.Rotation = new(Mathf.Clamp(MathF.Atan(grade), -.65f, .65f), BogCircuit.Yaw(forward) + spin,
             Mathf.Clamp(MathF.Atan(crossSlope), -.48f, .48f));
+        AgeJetSkiWake(track, dt);
+        if (DrawSnowboard(track, dt, moving, steering)) return;
         if (DrawOverboost(track, dt, moving, steering)) return;
         DrawMountRig(dt, moving, steering);
         ApplyRoadPoseLift(track, dt, mounted: true);
@@ -478,6 +584,12 @@ public sealed partial class MountedRacer
 
     private void DrawMountRig(float dt, bool moving, float steering, bool poseRiderArms = true)
     {
+        if (UsesJetSki)
+        {
+            jetSkiSteering!.Rotation = new Vector3(0, steering * .22f, 0);
+            UpdateSaddle(Lean, poseRiderArms);
+            return;
+        }
         if (CompanionSkate is { } companion)
         {
             UpdateSaddle(Lean, poseRiderArms);
@@ -493,6 +605,7 @@ public sealed partial class MountedRacer
             else DrawPlatform(dt, steering);
             UpdateSaddle(Lean, poseRiderArms);
         }
+        UpdateTuskerFur(dt, moving);
     }
 
     private void ApplyRoadPoseLift(BogCircuit track, float dt, bool mounted)
@@ -534,6 +647,7 @@ public sealed partial class MountedRacer
         }
         else DrawPlatform(dt, 0);
         UpdateSaddle(0);
+        UpdateTuskerFur(dt, false);
     }
 }
 

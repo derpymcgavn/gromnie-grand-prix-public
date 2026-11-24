@@ -38,9 +38,10 @@ internal sealed class RidgeRoad
 
     public RidgeRoad(BogCircuit track)
     {
-        int segments = Mathf.CeilToInt(track.Length / .95f);
-        open = track.IsSprint;
-        step = track.Length / segments;
+        float length = Math.Min(track.Length, track.DismountLine);
+        int segments = Mathf.CeilToInt(length / .95f);
+        open = track.IsPointToPoint;
+        step = length / segments;
         rings = segments + (open ? 1 : 0);
         float inner = track.HalfWidth - CustomShoulder;
         int divisions = Mathf.CeilToInt(inner / 2.65f);
@@ -54,9 +55,13 @@ internal sealed class RidgeRoad
         int columns = laneOffsets.Length;
         var road = new Vector3[rings * columns];
         var bridge = new float?[rings];
+        var ground = new bool[rings];
         for (int i = 0; i < rings; i++)
         {
             float at = i * step;
+            var mode = track.TravelMode(at);
+            ground[i] = mode == TrackTravelMode.Ground;
+            bool waterApproach = track.OnWaterApproach(at, mode);
             Vector3 center = track.NativeSurface(at, 0), right = track.Right(at), forward = track.Forward(at);
             float scale = track.WidthAt(at) / track.HalfWidth;
             bridge[i] = track.SpanDeck(at);
@@ -66,6 +71,14 @@ internal sealed class RidgeRoad
                 if (bridge[i] is { } deck)
                 {
                     point.Y = deck;
+                }
+                else if (waterApproach)
+                {
+                    point.Y = Math.Max(point.Y, track.WaterCourseLevel!.Value) + .045f;
+                }
+                else if (!ground[i])
+                {
+                    point.Y += .045f;
                 }
                 else
                 {
@@ -89,7 +102,7 @@ internal sealed class RidgeRoad
         for (int i = 0; i < (open ? rings - 1 : rings); i++)
         {
             int next = (i + 1) % rings;
-            if (bridge[i] is not null || bridge[next] is not null) continue;
+            if (!ground[i] || !ground[next] || bridge[i] is not null || bridge[next] is not null) continue;
             for (int c = 0; c < columns; c++)
             {
                 int a = i * columns + c, b = next * columns + c;
@@ -125,11 +138,13 @@ internal sealed class RidgeRoad
             for (int i = 0; i < (open ? rings - 1 : rings * 2); i++)
             {
                 int at = i % rings, next = (at + 1) % rings;
+                if (!ground[at] || !ground[next]) continue;
                 grade[next] = Math.Max(grade[next], grade[at] - rise);
             }
             for (int i = (open ? rings : rings * 2) - 1; i >= (open ? 1 : 0); i--)
             {
                 int at = i % rings, previous = (at + rings - 1) % rings;
+                if (!ground[at] || !ground[previous]) continue;
                 grade[previous] = Math.Max(grade[previous], grade[at] - rise);
             }
             for (int i = 0; i < rings; i++)
@@ -142,8 +157,16 @@ internal sealed class RidgeRoad
         }
         return road;
 
-        int Before(int ring) => open ? Math.Max(0, ring - 1) : (ring + rings - 1) % rings;
-        int After(int ring) => open ? Math.Min(rings - 1, ring + 1) : (ring + 1) % rings;
+        int Before(int ring)
+        {
+            int candidate = open ? Math.Max(0, ring - 1) : (ring + rings - 1) % rings;
+            return ground[ring] && ground[candidate] ? candidate : ring;
+        }
+        int After(int ring)
+        {
+            int candidate = open ? Math.Min(rings - 1, ring + 1) : (ring + 1) % rings;
+            return ground[ring] && ground[candidate] ? candidate : ring;
+        }
         float WetFloor(Vector3 at, float floor) =>
             track.NativeDry(at) ? floor : Math.Max(floor, track.FreeGround(at).Y);
     }
@@ -212,7 +235,8 @@ internal sealed class RidgeRoad
         int segments = open ? count - 1 : count;
         var exposed = new bool[segments];
         for (int i = 0; i < segments; i++)
-            exposed[i] = track.SpanDeck((i + .5f) * step) is null;
+            exposed[i] = track.SpanDeck((i + .5f) * step) is null &&
+                track.TravelMode((i + .5f) * step) == TrackTravelMode.Ground;
         Rect2 terrainBounds = track.NativeBounds.Grow(-.06f);
         var transitions = new (Vector3 Inner, Vector3 Outer)[count * 2];
         for (int i = 0; i < count; i++)

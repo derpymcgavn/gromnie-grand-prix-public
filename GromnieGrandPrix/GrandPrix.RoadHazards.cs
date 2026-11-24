@@ -28,7 +28,7 @@ public partial class GrandPrix
     private void BuildRoadHazards()
     {
         roadHazards.Clear();
-        if (track.IsVoid) return;
+        if (track.IsVoid || track.IsWaterCourse) return;
         var random = onlinePlan is { } plan ? new Random(plan.Seed ^ 7241) : testMode ? new Random(7241 + activeTown) : Random.Shared;
         int count = Mathf.Clamp(Mathf.CeilToInt(track.Length / 315), 2, 16);
         float spacing = track.Length / count;

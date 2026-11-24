@@ -28,8 +28,10 @@ internal sealed partial record RaceMount
         var dyedMaterials = new Dictionary<StandardMaterial3D, StandardMaterial3D>();
         foreach (var (mesh, part) in actor.BodyMeshBindings)
         {
-            // Change Asheron's robe without dyeing his face, hands or boots.
-            if (!mesh.Visible || Kind == RaceMountKind.Asheron && part is not (0 or 1 or 5 or 9 or 11 or 14)) continue;
+            // Keep skin and feet native when recoloring clothing or plumage.
+            if (!mesh.Visible ||
+                Kind == RaceMountKind.Asheron && part is not (0 or 1 or 5 or 9 or 11 or 14) ||
+                Kind == RaceMountKind.Turkey && part is not (0 or 6)) continue;
             for (int surface = 0; surface < mesh.Mesh.GetSurfaceCount(); surface++)
             {
                 if (mesh.GetActiveMaterial(surface) is not StandardMaterial3D original) continue;

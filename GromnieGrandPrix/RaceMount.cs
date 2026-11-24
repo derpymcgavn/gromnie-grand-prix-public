@@ -1,7 +1,7 @@
 using Godot;
 using DerethSurvivors;
 
-internal enum RaceMountKind { Gromnie, Cow, Auroch, Chicken, Rabbit, Asheron, Grievver, Mukkir, Shreth, Mattekar, Reedshark, BaelZharon, FestivusCarpet, IsinDuleDisc, CarenziSkates, Siraluun }
+internal enum RaceMountKind { Gromnie, Cow, Auroch, Chicken, Rabbit, Asheron, Grievver, Mukkir, Shreth, Mattekar, Reedshark, BaelZharon, FestivusCarpet, IsinDuleDisc, CarenziSkates, Siraluun, Turkey, Tusker, SnowTusker }
 internal enum MountPlatform { None, Carpet, MageDisc }
 
 internal sealed partial record RaceMount(RaceMountKind Kind, string Name, RareCatalog.Creature? Native, float Scale,
@@ -19,6 +19,12 @@ internal sealed partial record RaceMount(RaceMountKind Kind, string Name, RareCa
     private static readonly MountFoot[] SharkFeet =
     [
         new(6, new(0, -.075f, -.10f)), new(9, new(0, -.075f, -.10f)), new(12, new(0, -.07f, -.05f))
+    ];
+
+    private static readonly MountFoot[] TuskerContacts =
+    [
+        new(4, new(0, -.30f, -.04f)), new(7, new(0, -.30f, -.04f)),
+        new(10, new(0, -.175f, -.095f)), new(13, new(0, -.175f, -.095f))
     ];
 
     internal static readonly (string Name, string Hex, RareCatalog.Creature Look)[] SiraluunColors =
@@ -118,7 +124,19 @@ internal sealed partial record RaceMount(RaceMountKind Kind, string Name, RareCa
             [new(7, new(0, -.028f, -.014f)), new(10, new(0, -.028f, -.014f)),
                 new(15, new(0, -.028f, -.014f)), new(18, new(0, -.028f, -.014f))]),
         new(RaceMountKind.Siraluun, "Siraluun", SiraluunColors[0].Look, 1.18f, 0, new(0, .46f, .24f), .94f, 1.08f,
-            [new(8, new(0, -.042f, -.17f)), new(11, new(0, -.042f, -.17f))], SaddleFollow: .54f)
+            [new(8, new(0, -.042f, -.17f)), new(11, new(0, -.042f, -.17f))], SaddleFollow: .54f),
+        new(RaceMountKind.Turkey, "Turkey", new RareCatalog.Creature
+        {
+            Id = 53015, Setup = 0x02001c10, Motion = 0x090001c7, Sound = 0x200000da
+        }, 3.46f, 0, new(0, .25f, -.115f), 1.10f, .95f,
+            [new(2, new(0, -.198f, -.073f)), new(4, new(0, -.198f, -.073f))], SaddleFollow: .62f),
+        new(RaceMountKind.Tusker, "Tusker", new RareCatalog.Creature
+        {
+            Id = 11, Setup = 0x02000964, Motion = 0x0900000c, Sound = 0x20000011,
+            Palette = 0x0400102f, Clothing = 0x1000025b, PaletteTemplate = 76
+        }, 1.32f, 1, new(0, .54f, .02f), 1.14f, 1.09f, TuskerContacts, SaddleFollow: .38f),
+        new(RaceMountKind.SnowTusker, "Snow Tusker", SnowTuskerLook(43592, 0x02001a33),
+            1.38f, 1, new(0, .60f, .02f), 1.16f, 1.06f, TuskerContacts, SaddleFollow: .38f)
     ];
 
     private static RareCatalog.Creature SiraluunLook(int id, uint paletteTemplate) => new()
@@ -136,6 +154,11 @@ internal sealed partial record RaceMount(RaceMountKind Kind, string Name, RareCa
     {
         Id = id, Setup = 0x02001019, Motion = 0x090000bd, Sound = 0x2000007b,
         Palette = 0x040016e2, Clothing = 0x100004fc, PaletteTemplate = paletteTemplate
+    };
+
+    private static RareCatalog.Creature SnowTuskerLook(int id, uint setup) => new()
+    {
+        Id = id, Setup = setup, Motion = 0x0900000c, Sound = 0x20000011
     };
 
     public static RaceMount Get(RaceMountKind kind) => All[(int)kind];

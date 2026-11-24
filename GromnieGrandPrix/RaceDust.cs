@@ -51,7 +51,7 @@ internal sealed class RaceDust
 
     public void SampleFeet(MountedRacer racer, BogCircuit track, bool drifting, bool superDrift = false)
     {
-        if (racer.MountUnavailable)
+        if (racer.MountUnavailable || racer.UsesJetSki)
         {
             skidTrail.Stop(racer);
             return;

@@ -26,7 +26,8 @@ public partial class GrandPrix
                 Wave(RiderTarget(racer), PyrealTint, 1.55f, .45f);
                 break;
             case RaceItem.LeapingDraught:
-                racer.Leap = MountedRacer.LeapDuration;
+                if (racer.UsesSnowboard) racer.LaunchSnowboardJump(MountedRacer.LeapLaunchSpeed);
+                else racer.Leap = MountedRacer.LeapDuration;
                 Array.Clear(racer.DustContact);
                 Wave(racer.CoursePosition(track) + Vector3.Up * .18f, new("a3f5bf"), 2.1f, .48f);
                 break;

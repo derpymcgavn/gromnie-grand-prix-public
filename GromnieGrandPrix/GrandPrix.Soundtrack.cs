@@ -97,6 +97,8 @@ public partial class GrandPrix
 
     private SoundtrackCue RaceMusic()
     {
+        if (track.IsJester) return PortalStormMusic;
+        if (track.IsKaleidoscope) return ClashMusic;
         if (track.IsVoid) return HopeslayerMusic;
         if (track.IsCustom) return PortalStormMusic;
         if (track.IsSprint) return HoltburgMusic;

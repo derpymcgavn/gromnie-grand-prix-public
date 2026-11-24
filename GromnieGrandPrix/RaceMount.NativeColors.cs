@@ -200,5 +200,26 @@ internal sealed partial record RaceMount
                 .. SiraluunColors.Select(v => new MountColor(v.Name, v.Hex, v.Look)),
                 Variation(RaceMountKind.Siraluun, "Dusk", "5b4a50", 0, 0x100002e2, 2, 0x0400111f),
             ],
+            [RaceMountKind.Turkey] =
+            [
+                new("Thunder Turkey", "9a6554"),
+                Dye("Copper Plumage", "c97142"),
+                Dye("Ash Plumage", "85888d"),
+                Dye("Golden Plumage", "dca672"),
+            ],
+            [RaceMountKind.Tusker] =
+            [
+                new("Tusker", "ad6940"),
+                Variation(RaceMountKind.Tusker, "Goldenback", "c49a49", 235, 0x1000025d, 21, 0x040001c3),
+                Variation(RaceMountKind.Tusker, "Crimsonback", "a04441", 1627, 0x10000263, 14, 0x0400102f),
+                Variation(RaceMountKind.Tusker, "Albino", "d8c9bb", 7115, 0x1000025e, 20, 0x0400102f),
+                Variation(RaceMountKind.Tusker, "Silver", "a5a8b5", 7184, 0x10000260, 53, 0x0400102f),
+            ],
+            [RaceMountKind.SnowTusker] =
+            [
+                new("Snow Tusker", "dce4eb"),
+                new("Snow Tusker Warrior", "bfd2df", SnowTuskerLook(43593, 0x02001a34)),
+                new("Snow Tusker Leader", "eeeeef", SnowTuskerLook(43594, 0x02001a35)),
+            ],
         };
 }
